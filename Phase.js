@@ -34,7 +34,7 @@ function initProcessAnimation() {
       mount.getAttribute("data-video-rotation") || "0",
       10,
     );
-    return createParticleScene(
+    return createDualScene(
       mount,
       mount.getAttribute("data-video-src"),
       rotation,
@@ -83,7 +83,7 @@ function initProcessAnimation() {
         gsap.set(stepNodes[0], { autoAlpha: 1, scale: 1 });
 
         scenes.forEach((scene) => {
-          scene.setProgress(0);
+          scene.setTransition(0);
           scene.play();
         });
 
@@ -94,32 +94,65 @@ function initProcessAnimation() {
           if (activeVideoTl) activeVideoTl.kill();
           activeVideoTl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
 
+          // Reset non-participating scenes
           videoMounts.forEach((mount, i) => {
             if (i !== from && i !== to) {
               gsap.set(mount, { autoAlpha: 0 });
-              gsap.set(scenes[i].uniforms.uProgress, { value: 1 });
+              scenes[i].setTransition(0);
             }
           });
 
           const direction = to > from ? 1 : -1;
 
           if (direction === 1) {
-            // Start the incoming video hidden so the outgoing has room to shatter
+            // FORWARD: outgoing scatters and dissolves, incoming gathers in
             gsap.set(videoMounts[to], { zIndex: 1, scale: 1, autoAlpha: 0 });
-            gsap.set(scenes[to].uniforms.uProgress, { value: 0 });
             gsap.set(videoMounts[from], { zIndex: 2 });
+            scenes[to].setTransition(1);
 
+            // Outgoing: ramp into particle mode, then scatter out
             activeVideoTl.to(
-              scenes[from].uniforms.uProgress,
-              { value: 1, duration: TRANSITION_DURATION },
+              scenes[from].uniforms.uTransition,
+              {
+                value: 1,
+                duration: TRANSITION_DURATION * 0.4,
+                ease: "power2.in",
+              },
               0,
             );
+            activeVideoTl.to(
+              scenes[from].uniforms.uScatter,
+              {
+                value: 1,
+                duration: TRANSITION_DURATION * 0.7,
+                ease: "power2.in",
+              },
+              TRANSITION_DURATION * 0.2,
+            );
 
-            // Fade in the incoming video starting at 33% of the way through the transition
+            // Incoming: appear in particle mode, gather to native, then settle
             activeVideoTl.to(
               videoMounts[to],
-              { autoAlpha: 1, duration: TRANSITION_DURATION * 0.6 },
-              TRANSITION_DURATION * 0.33,
+              { autoAlpha: 1, duration: TRANSITION_DURATION * 0.5 },
+              TRANSITION_DURATION * 0.3,
+            );
+            activeVideoTl.to(
+              scenes[to].uniforms.uScatter,
+              {
+                value: 0,
+                duration: TRANSITION_DURATION * 0.7,
+                ease: "power2.out",
+              },
+              TRANSITION_DURATION * 0.3,
+            );
+            activeVideoTl.to(
+              scenes[to].uniforms.uTransition,
+              {
+                value: 0,
+                duration: TRANSITION_DURATION * 0.4,
+                ease: "power2.out",
+              },
+              TRANSITION_DURATION * 0.6,
             );
 
             activeVideoTl.to(
@@ -128,15 +161,29 @@ function initProcessAnimation() {
               TRANSITION_DURATION - 0.2,
             );
           } else {
-            // Reverse: The incoming video assembles on top, so fade out the bottom one on a delay
             gsap.set(videoMounts[to], { zIndex: 2, scale: 1, autoAlpha: 1 });
-            gsap.set(scenes[to].uniforms.uProgress, { value: 1 });
             gsap.set(videoMounts[from], { zIndex: 1, autoAlpha: 1 });
+            scenes[to].setTransition(1);
+            scenes[to].uniforms.uScatter.value = 1;
 
+            // Incoming scene gathers in from scattered state
             activeVideoTl.to(
-              scenes[to].uniforms.uProgress,
-              { value: 0, duration: TRANSITION_DURATION },
-              0,
+              scenes[to].uniforms.uScatter,
+              {
+                value: 0,
+                duration: TRANSITION_DURATION * 0.8,
+                ease: "power2.out",
+              },
+              TRANSITION_DURATION * 0.2,
+            );
+            activeVideoTl.to(
+              scenes[to].uniforms.uTransition,
+              {
+                value: 0,
+                duration: TRANSITION_DURATION * 0.4,
+                ease: "power2.out",
+              },
+              TRANSITION_DURATION * 0.5,
             );
 
             activeVideoTl.to(
@@ -187,15 +234,12 @@ function initProcessAnimation() {
             const nextText = texts[i + 1];
             const nextSpans = spansPerText[i + 1];
 
-            // Choreography Fix: Tighten the gap. The outgoing leaves slightly earlier...
             tl.to(
               currentSpans,
               { autoAlpha: 0, duration: 0.3, stagger: 0.04 },
               handoff - 0.5,
             );
             tl.to(text, { y: -15, autoAlpha: 0, duration: 0.4 }, handoff - 0.5);
-
-            // ...and the incoming starts almost immediately as the video is firing (handoff - 0.1 instead of handoff)
             tl.fromTo(
               nextText,
               { y: 15 },
@@ -225,28 +269,24 @@ function initProcessAnimation() {
       gsap.set(videoMounts, { autoAlpha: 0 });
       gsap.set(videoMounts[0], { autoAlpha: 1 });
       scenes.forEach((scene, i) => {
-        scene.setProgress(0);
+        scene.setTransition(0);
         if (i === 0) scene.play();
       });
     });
   });
 }
 
-function createParticleScene(mount, videoSrc, rotation) {
+function createDualScene(mount, videoSrc, rotation) {
   const video = document.createElement("video");
   video.src = videoSrc;
   video.crossOrigin = "anonymous";
   video.muted = true;
   video.loop = true;
-
-  // CRITICAL FOR iOS: Must have autoplay and playsinline explicitly set as attributes
   video.playsInline = true;
   video.autoplay = true;
   video.setAttribute("playsinline", "");
   video.setAttribute("autoplay", "");
   video.preload = "auto";
-
-  // Force the browser to evaluate the source and load it
   video.load();
 
   const scene = new THREE.Scene();
@@ -263,22 +303,35 @@ function createParticleScene(mount, videoSrc, rotation) {
   texture.format = THREE.RGBAFormat;
   texture.flipY = true;
 
-  const GRID_SIZE = 220;
-  const geometry = buildParticleGeometry(GRID_SIZE);
-
   const uniforms = {
     uTexture: { value: texture },
-    uProgress: { value: 0 },
+    uTransition: { value: 0 },
+    uScatter: { value: 0 },
     uTime: { value: 0 },
-    uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
-    uSize: { value: 2.0 },
     uContainerAspect: { value: 1.0 },
     uVideoAspect: { value: 1.0 },
     uRotation: { value: (rotation * Math.PI) / 180 },
   };
 
-  const material = new THREE.ShaderMaterial({
+  const videoGeometry = new THREE.PlaneGeometry(2, 2);
+  const videoMaterial = new THREE.ShaderMaterial({
     uniforms,
+    vertexShader: VIDEO_VERT,
+    fragmentShader: VIDEO_FRAG,
+    transparent: true,
+    depthWrite: false,
+  });
+  const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+  scene.add(videoMesh);
+
+  const GRID_SIZE = 320;
+  const particleGeometry = buildParticleGeometry(GRID_SIZE);
+  const particleMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      ...uniforms,
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      uSize: { value: 2.5 },
+    },
     vertexShader: PARTICLE_VERT,
     fragmentShader: PARTICLE_FRAG,
     transparent: true,
@@ -286,8 +339,16 @@ function createParticleScene(mount, videoSrc, rotation) {
     blending: THREE.NormalBlending,
   });
 
-  const points = new THREE.Points(geometry, material);
-  scene.add(points);
+  particleMaterial.uniforms.uTexture = uniforms.uTexture;
+  particleMaterial.uniforms.uTransition = uniforms.uTransition;
+  particleMaterial.uniforms.uScatter = uniforms.uScatter;
+  particleMaterial.uniforms.uTime = uniforms.uTime;
+  particleMaterial.uniforms.uContainerAspect = uniforms.uContainerAspect;
+  particleMaterial.uniforms.uVideoAspect = uniforms.uVideoAspect;
+  particleMaterial.uniforms.uRotation = uniforms.uRotation;
+
+  const particles = new THREE.Points(particleGeometry, particleMaterial);
+  scene.add(particles);
 
   function updateAspect() {
     const w = mount.clientWidth;
@@ -343,13 +404,8 @@ function createParticleScene(mount, videoSrc, rotation) {
     video.pause();
   }
 
-  // iOS Fallback: If it's in Low Power Mode, even autoplay won't work.
-  // We use loadedmetadata as a safer check, or force resolve after a timeout so it doesn't break the whole site.
   const ready = new Promise((resolve) => {
-    // 3-second failsafe: if iOS refuses to load the video entirely (e.g., Low Power Mode),
-    // we resolve anyway so the rest of your site's JS doesn't crash. The canvas will just remain blank.
     const failsafe = setTimeout(() => resolve(), 3000);
-
     if (video.readyState >= 2) {
       clearTimeout(failsafe);
       resolve();
@@ -367,8 +423,8 @@ function createParticleScene(mount, videoSrc, rotation) {
 
   return {
     uniforms,
-    setProgress: (v) => {
-      uniforms.uProgress.value = v;
+    setTransition: (v) => {
+      uniforms.uTransition.value = v;
     },
     play,
     pause,
@@ -380,7 +436,7 @@ function buildParticleGeometry(gridSize) {
   const count = gridSize * gridSize;
   const positions = new Float32Array(count * 3);
   const uvs = new Float32Array(count * 2);
-  const randoms = new Float32Array(count);
+  const randoms = new Float32Array(count * 3);
 
   let i = 0;
   for (let y = 0; y < gridSize; y++) {
@@ -392,7 +448,9 @@ function buildParticleGeometry(gridSize) {
       uvs[i * 2 + 0] = x / (gridSize - 1);
       uvs[i * 2 + 1] = y / (gridSize - 1);
 
-      randoms[i] = Math.random();
+      randoms[i * 3 + 0] = Math.random();
+      randoms[i * 3 + 1] = Math.random();
+      randoms[i * 3 + 2] = Math.random();
       i++;
     }
   }
@@ -400,15 +458,56 @@ function buildParticleGeometry(gridSize) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("aUv", new THREE.BufferAttribute(uvs, 2));
-  geo.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 1));
+  geo.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 3));
   return geo;
 }
 
+const VIDEO_VERT = `
+  varying vec2 vUv;
+  uniform float uContainerAspect;
+  uniform float uVideoAspect;
+  uniform float uRotation;
+
+  vec2 rotate2D(vec2 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return mat2(c, -s, s, c) * v;
+  }
+
+  void main() {
+    vec2 uv = uv - 0.5;
+    if (uContainerAspect > uVideoAspect) {
+      uv.y *= uVideoAspect / uContainerAspect;
+    } else {
+      uv.x *= uContainerAspect / uVideoAspect;
+    }
+    uv = rotate2D(uv, uRotation);
+    uv += 0.5;
+    vUv = uv;
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`;
+
+const VIDEO_FRAG = `
+  uniform sampler2D uTexture;
+  uniform float uTransition;
+  varying vec2 vUv;
+
+  void main() {
+    if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) discard;
+    vec4 color = texture2D(uTexture, vUv);
+    // Fade out as transition ramps up; particle mesh takes over
+    float alpha = color.a * (1.0 - uTransition);
+    gl_FragColor = vec4(color.rgb, alpha);
+  }
+`;
+
 const PARTICLE_VERT = `
   attribute vec2 aUv;
-  attribute float aRandom;
+  attribute vec3 aRandom;
 
-  uniform float uProgress;
+  uniform float uTransition;
+  uniform float uScatter;
   uniform float uTime;
   uniform float uPixelRatio;
   uniform float uSize;
@@ -425,45 +524,56 @@ const PARTICLE_VERT = `
     return mat2(c, -s, s, c) * v;
   }
 
+  // Pseudo curl-noise: cheap flow field driving particles along curves.
+  // Real curl noise would be expensive; this approximates the feel with
+  // layered sin waves which is enough for a 1.5s transition.
+  vec2 flowField(vec2 p, float t) {
+    float n1 = sin(p.x * 3.0 + t * 0.5) * cos(p.y * 2.5 + t * 0.4);
+    float n2 = cos(p.x * 2.0 - t * 0.3) * sin(p.y * 3.5 - t * 0.6);
+    return vec2(n1, n2);
+  }
+
   void main() {
     vec3 pos = position;
 
+    // Cover-fit UV sampling — same logic as the video quad
     vec2 uv = aUv - 0.5;
-
-    float containerAspect = uContainerAspect;
-    float videoAspect = uVideoAspect;
-
-    if (containerAspect > videoAspect) {
-      uv.y *= videoAspect / containerAspect;
+    if (uContainerAspect > uVideoAspect) {
+      uv.y *= uVideoAspect / uContainerAspect;
     } else {
-      uv.x *= containerAspect / videoAspect;
+      uv.x *= uContainerAspect / uVideoAspect;
     }
-
     uv = rotate2D(uv, uRotation);
     uv += 0.5;
     vUv = uv;
 
+    // Aspect-corrected physical position for displacement math
     vec2 physicalPos = pos.xy * vec2(uContainerAspect, 1.0);
-    vec2 dir = normalize(physicalPos + vec2(0.0001));
-    
-    float scatter = uProgress * (0.6 + aRandom * 1.4);
-    float angle = aRandom * 6.28318 + uTime * 0.5;
-    vec2 swirl = vec2(cos(angle), sin(angle)) * uProgress * 0.15;
 
-    vec2 physicalDisplacement = dir * scatter + swirl;
+    // Flow displacement: each particle follows a curl field, with timing
+    // staggered by per-particle random so they don't move in lockstep.
+    float scatterAmount = uScatter * (0.4 + aRandom.x * 1.6);
+    vec2 flow = flowField(physicalPos * 1.5 + aRandom.xy, uTime + aRandom.z * 6.28);
+    vec2 displacement = flow * scatterAmount * 0.5;
 
-    pos.xy += physicalDisplacement / vec2(uContainerAspect, 1.0);
+    // Add a small radial bias so the net motion still feels outward,
+    // but the curl noise dominates the look
+    vec2 radial = normalize(physicalPos + vec2(0.0001)) * scatterAmount * 0.2;
+    displacement += radial;
 
-    vAlpha = 1.0 - smoothstep(0.3, 0.9 + aRandom * 0.1, uProgress);
+    pos.xy += displacement / vec2(uContainerAspect, 1.0);
+
+    // Fade based on scatter progress, with per-particle variation
+    vAlpha = 1.0 - smoothstep(0.3, 0.95 + aRandom.x * 0.05, uScatter);
 
     gl_Position = vec4(pos, 1.0);
-    gl_PointSize = uSize * uPixelRatio * (1.0 + aRandom * 0.5);
+    gl_PointSize = uSize * uPixelRatio * (1.0 + aRandom.z * 0.4);
   }
 `;
 
 const PARTICLE_FRAG = `
   uniform sampler2D uTexture;
-
+  uniform float uTransition;
   varying vec2 vUv;
   varying float vAlpha;
 
@@ -477,7 +587,9 @@ const PARTICLE_FRAG = `
 
     vec4 color = texture2D(uTexture, vUv);
 
-    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha);
+    // Only render when transition is active. Multiply by uTransition so
+    // particles fade in/out smoothly as the mode crossfades.
+    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha * uTransition);
   }
 `;
 
