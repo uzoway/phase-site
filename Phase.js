@@ -822,7 +822,6 @@ function initTeamModals() {
 
     if (!openBtn || !modal || !closeBtn || !innerCard) return;
 
-    // ARIA wiring — each modal gets a unique id pair for labelling
     const modalId = `team-modal-${index}`;
     const titleId = `team-modal-title-${index}`;
     modal.id = modalId;
@@ -837,7 +836,6 @@ function initTeamModals() {
       setupScrollMask(scrollableTexts);
     }
 
-    // Open button: type, accessible name from the member's name, and a11y relationships
     openBtn.setAttribute("type", "button");
     openBtn.setAttribute("aria-haspopup", "dialog");
     openBtn.setAttribute("aria-controls", modalId);
@@ -851,7 +849,6 @@ function initTeamModals() {
       memberName ? `Close profile for ${memberName}` : "Close profile",
     );
 
-    // Initial hidden state — set inline styles BEFORE removing .hide so there's no flash
     gsap.set(modal, { autoAlpha: 0 });
     gsap.set(innerCard, { scale: 0.96, y: 16 });
     modal.classList.remove("hide");
@@ -862,13 +859,11 @@ function initTeamModals() {
     );
     closeBtn.addEventListener("click", () => closeModal());
 
-    // Backdrop click — anywhere outside the inner card closes
     modal.addEventListener("click", (event) => {
       if (!innerCard.contains(event.target)) closeModal();
     });
   });
 
-  // Global keydown — Escape and focus trap
   document.addEventListener("keydown", handleKeydown);
 
   function openModal(modal, innerCard, opener) {
@@ -895,7 +890,6 @@ function initTeamModals() {
       ease: "expo.out",
     });
 
-    // Focus on next frame — by then GSAP has flipped visibility to visible
     requestAnimationFrame(() => focusCloseButton(modal));
   }
 
@@ -914,7 +908,6 @@ function initTeamModals() {
       return;
     }
 
-    // Vacuum close — card collapses in place, backdrop follows
     gsap.to(innerCard, {
       scale: 0.97,
       duration: 0.28,
@@ -984,7 +977,6 @@ function initTeamModals() {
       '[tabindex]:not([tabindex="-1"])',
     ].join(",");
     return Array.from(container.querySelectorAll(selector)).filter((el) => {
-      // Visible + actually focusable
       return el.offsetParent !== null || el === document.activeElement;
     });
   }
@@ -1014,13 +1006,19 @@ function initTeamModals() {
 
 function setupScrollMask(scrollEl) {
   const FADE_THRESHOLD = 4;
+  const mobileQuery = window.matchMedia("(max-width: 767px)");
 
   const update = () => {
+    if (!mobileQuery.matches) {
+      scrollEl.style.removeProperty("--mask-top");
+      scrollEl.style.removeProperty("--mask-bottom");
+      return;
+    }
+
     const { scrollTop, scrollHeight, clientHeight } = scrollEl;
     const distanceFromTop = scrollTop;
     const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
 
-    // Smooth ramp into the mask rather than binary on/off
     const topMask = Math.min(1, distanceFromTop / FADE_THRESHOLD);
     const bottomMask = Math.min(1, distanceFromBottom / FADE_THRESHOLD);
 
@@ -1032,6 +1030,8 @@ function setupScrollMask(scrollEl) {
 
   const resizeObserver = new ResizeObserver(update);
   resizeObserver.observe(scrollEl);
+
+  mobileQuery.addEventListener("change", update);
 
   update();
 }
