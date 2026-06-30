@@ -87,10 +87,6 @@ function initProcessAnimation() {
           scene.play();
         });
 
-        requestAnimationFrame(() => {
-          scenes.forEach((s) => s.refresh());
-        });
-
         let activeStep = 0;
         let activeVideoTl = null;
 
@@ -258,7 +254,16 @@ function initProcessAnimation() {
           }
         });
 
+        const onRefresh = () => {
+          scenes.forEach((s) => s.refresh());
+        };
+        ScrollTrigger.addEventListener("refresh", onRefresh);
+
+        // Initial sync after timeline + ScrollTrigger are built
+        scenes.forEach((s) => s.refresh());
+
         return () => {
+          ScrollTrigger.removeEventListener("refresh", onRefresh);
           scenes.forEach((s) => s.pause());
         };
       },
@@ -300,6 +305,12 @@ function createDualScene(mount, videoSrc, rotation) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
   mount.appendChild(renderer.domElement);
+
+  Object.assign(renderer.domElement.style, {
+    width: "100%",
+    height: "100%",
+    display: "block",
+  });
 
   const texture = new THREE.VideoTexture(video);
   texture.minFilter = THREE.LinearFilter;
@@ -371,9 +382,13 @@ function createDualScene(mount, videoSrc, rotation) {
 
   function resize() {
     const w = mount.clientWidth;
-    const h = mount.clientHeight;
-    if (w === 0 || h === 0) return;
-    renderer.setSize(w, h, true);
+    if (w === 0) return;
+
+    const h = w;
+    mount.style.height = `${h}px`;
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
     updateAspect();
   }
 
