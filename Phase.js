@@ -87,6 +87,10 @@ function initProcessAnimation() {
           scene.play();
         });
 
+        requestAnimationFrame(() => {
+          scenes.forEach((s) => s.refresh());
+        });
+
         let activeStep = 0;
         let activeVideoTl = null;
 
@@ -369,7 +373,7 @@ function createDualScene(mount, videoSrc, rotation) {
     const w = mount.clientWidth;
     const h = mount.clientHeight;
     if (w === 0 || h === 0) return;
-    renderer.setSize(w, h, false);
+    renderer.setSize(w, h, true);
     updateAspect();
   }
 
@@ -426,6 +430,7 @@ function createDualScene(mount, videoSrc, rotation) {
     setTransition: (v) => {
       uniforms.uTransition.value = v;
     },
+    refresh: () => resize(),
     play,
     pause,
     ready,
