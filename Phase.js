@@ -238,9 +238,16 @@ function createParticleScene(mount, videoSrc, rotation) {
   video.crossOrigin = "anonymous";
   video.muted = true;
   video.loop = true;
+
+  // CRITICAL FOR iOS: Must have autoplay and playsinline explicitly set as attributes
   video.playsInline = true;
+  video.autoplay = true;
   video.setAttribute("playsinline", "");
+  video.setAttribute("autoplay", "");
   video.preload = "auto";
+
+  // Force the browser to evaluate the source and load it
+  video.load();
 
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -336,11 +343,25 @@ function createParticleScene(mount, videoSrc, rotation) {
     video.pause();
   }
 
+  // iOS Fallback: If it's in Low Power Mode, even autoplay won't work.
+  // We use loadedmetadata as a safer check, or force resolve after a timeout so it doesn't break the whole site.
   const ready = new Promise((resolve) => {
+    // 3-second failsafe: if iOS refuses to load the video entirely (e.g., Low Power Mode),
+    // we resolve anyway so the rest of your site's JS doesn't crash. The canvas will just remain blank.
+    const failsafe = setTimeout(() => resolve(), 3000);
+
     if (video.readyState >= 2) {
+      clearTimeout(failsafe);
       resolve();
     } else {
-      video.addEventListener("loadeddata", () => resolve(), { once: true });
+      video.addEventListener(
+        "loadeddata",
+        () => {
+          clearTimeout(failsafe);
+          resolve();
+        },
+        { once: true },
+      );
     }
   });
 
