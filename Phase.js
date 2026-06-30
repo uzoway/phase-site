@@ -682,8 +682,8 @@ function initTechSection() {
   mm.add("(min-width: 768px)", () => {
     resetToReadState();
 
-    const totalDuration = 10;
-    const handoff = 4.5;
+    const totalDuration = 5;
+    const handoff = 2.25;
 
     const tl = gsap.timeline({
       defaults: { ease: "none" },
