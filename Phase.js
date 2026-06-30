@@ -1,3 +1,4 @@
+/* -- PROCESS LOTTIE STEP ANIMATION -- */
 const SHOW_STEP_INDICATORS = true;
 
 function initProcessAnimation() {
@@ -199,6 +200,7 @@ function positionStepNodes(nodes, isMobile, total) {
   });
 }
 
+/* -- TECHNOLOGY STEP ANIMATION -- */
 const SHOW_TECH_BG_CROSSFADE = true;
 
 function initTechSection() {
@@ -238,8 +240,6 @@ function initTechSection() {
     willChange: "transform, opacity",
   });
 
-  // Resets every initial visual state. Called from each matchMedia branch
-  // so the section always starts clean after a breakpoint change.
   function resetToReadState() {
     gsap.set(readDescription, { autoAlpha: 1, y: 0 });
     gsap.set(writeDescription, { autoAlpha: 0, y: 20 });
@@ -501,7 +501,6 @@ function initTeamModals() {
       ease: "power2.in",
       delay: 0.04,
       onComplete: () => {
-        // Reset inner card to its "ready to open" state for next time
         gsap.set(innerCard, { scale: 0.96, y: 16 });
         finishClose(modal, opener);
       },
@@ -566,7 +565,6 @@ function initTeamModals() {
   }
 
   function lockScroll() {
-    // If you use Lenis, replace this whole function with: window.lenis?.stop();
     savedScrollY = window.scrollY;
     const scrollbarWidth =
       window.innerWidth - document.documentElement.clientWidth;
@@ -579,7 +577,6 @@ function initTeamModals() {
   }
 
   function unlockScroll() {
-    // If you use Lenis, replace this whole function with: window.lenis?.start();
     document.body.style.paddingRight = "";
     document.body.style.position = "";
     document.body.style.top = "";
