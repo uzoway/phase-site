@@ -1,0 +1,631 @@
+const SHOW_STEP_INDICATORS = true;
+
+function initProcessAnimation() {
+  const section = document.querySelector('[data-process="section"]');
+  if (!section) return Promise.resolve();
+
+  const texts = gsap.utils.toArray('[data-process$="-text"]');
+  const lotties = gsap.utils.toArray('[data-process$="-lottie"]');
+  const progressBar = document.querySelector('[data-process="progress-bar"]');
+  const progressWrap = document.querySelector(".process_progress-bar-wrap");
+
+  if (!texts.length || !lotties.length || texts.length !== lotties.length) {
+    return Promise.resolve();
+  }
+
+  const total = texts.length;
+  const spansPerText = texts.map((t) =>
+    t.querySelectorAll(".process_description-span"),
+  );
+
+  gsap.set([texts, lotties], { willChange: "transform, opacity" });
+
+  const stepNodes = SHOW_STEP_INDICATORS
+    ? buildStepNodes(progressWrap, total)
+    : [];
+
+  const lottieData = [];
+  const loadPromises = lotties.map(
+    (el) =>
+      new Promise((resolve) => {
+        const anim = lottie.loadAnimation({
+          container: el,
+          renderer: "canvas",
+          loop: false,
+          autoplay: false,
+          path: el.getAttribute("data-src"),
+        });
+        anim.addEventListener("DOMLoaded", () => resolve(anim));
+        lottieData.push({ instance: anim, frame: 0 });
+      }),
+  );
+
+  return Promise.all(loadPromises).then(() => {
+    const mm = gsap.matchMedia();
+
+    mm.add(
+      {
+        isDesktop: "(min-width: 991px)",
+        isMobile: "(max-width: 990px)",
+      },
+      (context) => {
+        const { isMobile } = context.conditions;
+        const stepDuration = 2;
+        const totalDuration = (total - 1) * stepDuration;
+        const barAxis = isMobile ? "scaleX" : "scaleY";
+        const barOrigin = isMobile ? "left center" : "top center";
+
+        // Fresh initial state on every breakpoint change.
+        // Matchmedia reverts these when the context unmounts.
+        gsap.set(texts, { autoAlpha: 1, y: 0 });
+        gsap.set(texts.slice(1), { autoAlpha: 0, y: 20 });
+        spansPerText[0] && gsap.set(spansPerText[0], { autoAlpha: 1 });
+        spansPerText
+          .slice(1)
+          .forEach((spans) => gsap.set(spans, { autoAlpha: 0 }));
+        gsap.set(lotties, { autoAlpha: 0, scale: 1.12 });
+        gsap.set(lotties[0], { autoAlpha: 1, scale: 1 });
+
+        gsap.set(progressBar, {
+          scaleX: isMobile ? 0 : 1,
+          scaleY: isMobile ? 1 : 0,
+          transformOrigin: barOrigin,
+        });
+
+        positionStepNodes(stepNodes, isMobile, total);
+        gsap.set(stepNodes, { autoAlpha: 0.25, scale: 0.6 });
+
+        // Reset all lottie frames to 0 so they re-scrub from the start
+        lottieData.forEach((d) => {
+          d.frame = 0;
+          d.instance.goToAndStop(0, true);
+        });
+
+        const tl = gsap.timeline({
+          defaults: { ease: "none" },
+          scrollTrigger: {
+            trigger: section,
+            start: "top top",
+            end: () => `+=${total * 100}%`,
+            pin: true,
+            scrub: 0.7,
+            invalidateOnRefresh: true,
+            refreshPriority: 1,
+          },
+        });
+
+        tl.to(progressBar, { [barAxis]: 1, duration: totalDuration }, 0);
+
+        stepNodes.forEach((node, i) => {
+          tl.to(
+            node,
+            { autoAlpha: 1, scale: 1, duration: 0.35 },
+            i * stepDuration,
+          );
+        });
+
+        texts.forEach((text, i) => {
+          const startTime = i * stepDuration;
+          const anim = lottieData[i].instance;
+
+          tl.to(
+            lottieData[i],
+            {
+              frame: anim.totalFrames - 1,
+              duration: stepDuration * 0.65,
+              onUpdate: () => anim.goToAndStop(lottieData[i].frame, true),
+            },
+            startTime,
+          );
+
+          if (i < total - 1) {
+            const handoff = (i + 1) * stepDuration - 0.5;
+            const currentSpans = spansPerText[i];
+            const nextText = texts[i + 1];
+            const nextSpans = spansPerText[i + 1];
+
+            tl.to(
+              currentSpans,
+              { autoAlpha: 0, duration: 0.3, stagger: 0.04 },
+              handoff,
+            );
+            tl.to(text, { y: -12, duration: 0.45 }, handoff);
+            tl.to(
+              lotties[i],
+              { autoAlpha: 0, scale: 0.88, duration: 0.6 },
+              handoff,
+            );
+            tl.to(
+              lotties[i + 1],
+              { autoAlpha: 1, scale: 1, duration: 0.65 },
+              handoff + 0.15,
+            );
+            tl.to(
+              nextText,
+              { autoAlpha: 1, y: 0, duration: 0.55 },
+              handoff + 0.2,
+            );
+            tl.to(
+              nextSpans,
+              { autoAlpha: 1, duration: 0.5, stagger: 0.18 },
+              handoff + 0.25,
+            );
+          }
+        });
+      },
+    );
+
+    mm.add("(prefers-reduced-motion: reduce)", () => {
+      gsap.set(texts, { autoAlpha: 0, y: 0 });
+      gsap.set(texts[0], { autoAlpha: 1 });
+      spansPerText.forEach((spans, i) =>
+        gsap.set(spans, { autoAlpha: i === 0 ? 1 : 0 }),
+      );
+      gsap.set(lotties, { autoAlpha: 0, scale: 1 });
+      gsap.set(lotties[0], { autoAlpha: 1 });
+    });
+  });
+}
+
+function buildStepNodes(wrap, count) {
+  if (!wrap) return [];
+  if (getComputedStyle(wrap).position === "static")
+    wrap.style.position = "relative";
+
+  const nodes = [];
+  for (let i = 0; i < count; i++) {
+    const node = document.createElement("div");
+    node.setAttribute("data-process", "progress-node");
+    Object.assign(node.style, {
+      position: "absolute",
+      width: "8px",
+      height: "8px",
+      borderRadius: "50%",
+      background: "currentColor",
+      transform: "translate(-50%, -50%)",
+      pointerEvents: "none",
+    });
+    wrap.appendChild(node);
+    nodes.push(node);
+  }
+  return nodes;
+}
+
+function positionStepNodes(nodes, isMobile, total) {
+  nodes.forEach((node, i) => {
+    const pct = total === 1 ? 0 : (i / (total - 1)) * 100;
+    node.style.top = isMobile ? "50%" : `${pct}%`;
+    node.style.left = isMobile ? `${pct}%` : "50%";
+  });
+}
+
+const SHOW_TECH_BG_CROSSFADE = true;
+
+function initTechSection() {
+  const section = document.querySelector('[data-tech="process"]');
+  if (!section) return;
+
+  const readDescription = section.querySelector(
+    '[data-tech="read-description"]',
+  );
+  const writeDescription = section.querySelector(
+    '[data-tech="write-description"]',
+  );
+  const readLottieEl = section.querySelector('[data-tech="read-lottie"]');
+  const writeLottieEl = section.querySelector('[data-tech="write-lottie"]');
+  const progressBar = section.querySelector('[data-tech="progress-bar"]');
+  const diagramWrap = section.querySelector(".tech_diagram-wrap");
+  const [readLabel, writeLabel] = section.querySelectorAll(
+    '[data-tech="progress-text"]',
+  );
+
+  if (!readDescription || !writeDescription || !readLottieEl || !writeLottieEl)
+    return;
+
+  const ACTIVE_COLOR = "#030611";
+  const INACTIVE_COLOR = "#6E97A2";
+  const READ_GRADIENT =
+    "linear-gradient(180deg, #F0E7DD 77.68%, #FFF296 133.88%)";
+  const WRITE_GRADIENT =
+    "linear-gradient(180deg, #ECE5D2 79.3%, #9FC6B4 143.09%), linear-gradient(180deg, #F0E7DD 80.15%, #9FC6B4 105.21%)";
+
+  section.style.background = READ_GRADIENT;
+  const bgOverlay = SHOW_TECH_BG_CROSSFADE
+    ? buildBackgroundOverlay(section, WRITE_GRADIENT)
+    : null;
+
+  gsap.set([readDescription, writeDescription, readLottieEl, writeLottieEl], {
+    willChange: "transform, opacity",
+  });
+
+  // Resets every initial visual state. Called from each matchMedia branch
+  // so the section always starts clean after a breakpoint change.
+  function resetToReadState() {
+    gsap.set(readDescription, { autoAlpha: 1, y: 0 });
+    gsap.set(writeDescription, { autoAlpha: 0, y: 20 });
+    gsap.set(readLottieEl, { autoAlpha: 1, scale: 1 });
+    gsap.set(writeLottieEl, { autoAlpha: 0, scale: 1.12 });
+    gsap.set(readLabel, { color: ACTIVE_COLOR });
+    gsap.set(writeLabel, { color: INACTIVE_COLOR });
+    gsap.set(progressBar, { scaleX: 0, transformOrigin: "left center" });
+    if (bgOverlay) gsap.set(bgOverlay, { autoAlpha: 0 });
+  }
+
+  const mm = gsap.matchMedia();
+
+  // DESKTOP + TABLET (≥768px): pinned, scroll-driven
+  mm.add("(min-width: 768px)", () => {
+    resetToReadState();
+
+    const totalDuration = 10;
+    const handoff = 4.5;
+
+    const tl = gsap.timeline({
+      defaults: { ease: "none" },
+      scrollTrigger: {
+        trigger: section,
+        start: "top top",
+        end: () => `+=${totalDuration * 100}%`,
+        pin: true,
+        scrub: 0.7,
+        invalidateOnRefresh: true,
+      },
+    });
+
+    tl.to(progressBar, { scaleX: 1, duration: totalDuration }, 0);
+
+    tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, handoff);
+    tl.to(readLottieEl, { autoAlpha: 0, scale: 0.88, duration: 0.6 }, handoff);
+    tl.to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, handoff);
+
+    if (bgOverlay) {
+      tl.to(bgOverlay, { autoAlpha: 1, duration: 0.9 }, handoff - 0.1);
+    }
+
+    tl.to(
+      writeLottieEl,
+      { autoAlpha: 1, scale: 1, duration: 0.65 },
+      handoff + 0.15,
+    );
+    tl.to(
+      writeDescription,
+      { autoAlpha: 1, y: 0, duration: 0.5 },
+      handoff + 0.2,
+    );
+    tl.to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, handoff + 0.2);
+  });
+
+  // MOBILE (≤767px): no pin, autoplay sequence on enter
+  mm.add("(max-width: 767px)", () => {
+    resetToReadState();
+
+    const mobilePhaseDuration = 3;
+
+    ScrollTrigger.create({
+      trigger: section,
+      start: "top top",
+      once: true,
+      onEnter: runMobileSequence,
+    });
+
+    function runMobileSequence() {
+      gsap.to(progressBar, {
+        scaleX: 0.5,
+        duration: mobilePhaseDuration,
+        ease: "none",
+        onComplete: () => gsap.delayedCall(0.8, runHandoff),
+      });
+    }
+
+    function runHandoff() {
+      const tl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
+
+      tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, 0)
+        .to(readLottieEl, { autoAlpha: 0, scale: 0.88, duration: 0.55 }, 0)
+        .to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, 0);
+
+      if (bgOverlay) {
+        tl.to(bgOverlay, { autoAlpha: 1, duration: 0.8 }, 0);
+      }
+
+      tl.to(writeLottieEl, { autoAlpha: 1, scale: 1, duration: 0.6 }, 0.15)
+        .to(writeDescription, { autoAlpha: 1, y: 0, duration: 0.5 }, 0.2)
+        .to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, 0.2)
+        .call(
+          () => {
+            gsap.to(progressBar, {
+              scaleX: 1,
+              duration: mobilePhaseDuration,
+              ease: "none",
+            });
+          },
+          null,
+          0.5,
+        );
+    }
+  });
+
+  // REDUCED MOTION: static read state, no animation
+  mm.add("(prefers-reduced-motion: reduce)", () => {
+    resetToReadState();
+    gsap.set(progressBar, { scaleX: 0.5 });
+  });
+}
+
+function buildBackgroundOverlay(section, gradient) {
+  if (getComputedStyle(section).position === "static") {
+    section.style.position = "relative";
+  }
+  const directChild = section.firstElementChild;
+  if (directChild) {
+    directChild.style.position = "relative";
+    directChild.style.zIndex = "1";
+  }
+  const overlay = document.createElement("div");
+  Object.assign(overlay.style, {
+    position: "absolute",
+    inset: "0",
+    background: gradient,
+    opacity: "0",
+    pointerEvents: "none",
+    zIndex: "0",
+  });
+  section.appendChild(overlay);
+  return overlay;
+}
+
+/* -- TEAM MODAL ANIMATION -- */
+function initTeamModals() {
+  const teamBlocks = document.querySelectorAll(".team_block");
+  if (!teamBlocks.length) return;
+
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  let activeModal = null;
+  let activeInnerCard = null;
+  let lastFocusedElement = null;
+  let savedScrollY = 0;
+
+  teamBlocks.forEach((block, index) => {
+    const openBtn = block.querySelector('[data-team-modal="open-button"]');
+    const modal = block.querySelector('[data-team-modal="container"]');
+    const closeBtn = modal?.querySelector('[data-team-modal="close-button"]');
+    const innerCard = modal?.querySelector(".modal-inner-wrap");
+    const nameEl = modal?.querySelector(".modal-name");
+
+    if (!openBtn || !modal || !closeBtn || !innerCard) return;
+
+    // ARIA wiring — each modal gets a unique id pair for labelling
+    const modalId = `team-modal-${index}`;
+    const titleId = `team-modal-title-${index}`;
+    modal.id = modalId;
+    if (nameEl) nameEl.id = titleId;
+
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    if (nameEl) modal.setAttribute("aria-labelledby", titleId);
+
+    const scrollableTexts = modal.querySelector(".modal-texts-wrap");
+    if (scrollableTexts) {
+      setupScrollMask(scrollableTexts);
+    }
+
+    // Open button: type, accessible name from the member's name, and a11y relationships
+    openBtn.setAttribute("type", "button");
+    openBtn.setAttribute("aria-haspopup", "dialog");
+    openBtn.setAttribute("aria-controls", modalId);
+    const memberName = nameEl?.textContent?.trim();
+    if (memberName)
+      openBtn.setAttribute("aria-label", `View profile for ${memberName}`);
+
+    closeBtn.setAttribute("type", "button");
+    closeBtn.setAttribute(
+      "aria-label",
+      memberName ? `Close profile for ${memberName}` : "Close profile",
+    );
+
+    // Initial hidden state — set inline styles BEFORE removing .hide so there's no flash
+    gsap.set(modal, { autoAlpha: 0 });
+    gsap.set(innerCard, { scale: 0.96, y: 16 });
+    modal.classList.remove("hide");
+    modal.inert = true;
+
+    openBtn.addEventListener("click", () =>
+      openModal(modal, innerCard, openBtn),
+    );
+    closeBtn.addEventListener("click", () => closeModal());
+
+    // Backdrop click — anywhere outside the inner card closes
+    modal.addEventListener("click", (event) => {
+      if (!innerCard.contains(event.target)) closeModal();
+    });
+  });
+
+  // Global keydown — Escape and focus trap
+  document.addEventListener("keydown", handleKeydown);
+
+  function openModal(modal, innerCard, opener) {
+    if (activeModal) return;
+    activeModal = modal;
+    activeInnerCard = innerCard;
+    lastFocusedElement = opener;
+
+    lockScroll();
+    modal.inert = false;
+
+    if (prefersReducedMotion) {
+      gsap.set(modal, { autoAlpha: 1 });
+      gsap.set(innerCard, { scale: 1, y: 0 });
+      focusCloseButton(modal);
+      return;
+    }
+
+    gsap.to(modal, { autoAlpha: 1, duration: 0.3, ease: "power2.out" });
+    gsap.to(innerCard, {
+      scale: 1,
+      y: 0,
+      duration: 0.45,
+      ease: "expo.out",
+    });
+
+    // Focus on next frame — by then GSAP has flipped visibility to visible
+    requestAnimationFrame(() => focusCloseButton(modal));
+  }
+
+  function closeModal() {
+    if (!activeModal) return;
+    const modal = activeModal;
+    const innerCard = activeInnerCard;
+    const opener = lastFocusedElement;
+    activeModal = null;
+    activeInnerCard = null;
+
+    if (prefersReducedMotion) {
+      gsap.set(modal, { autoAlpha: 0 });
+      gsap.set(innerCard, { scale: 0.96, y: 16 });
+      finishClose(modal, opener);
+      return;
+    }
+
+    // Vacuum close — card collapses in place, backdrop follows
+    gsap.to(innerCard, {
+      scale: 0.97,
+      duration: 0.28,
+      ease: "power2.in",
+    });
+    gsap.to(modal, {
+      autoAlpha: 0,
+      duration: 0.32,
+      ease: "power2.in",
+      delay: 0.04,
+      onComplete: () => {
+        // Reset inner card to its "ready to open" state for next time
+        gsap.set(innerCard, { scale: 0.96, y: 16 });
+        finishClose(modal, opener);
+      },
+    });
+  }
+
+  function finishClose(modal, opener) {
+    modal.inert = true;
+    unlockScroll();
+    if (opener) opener.focus({ preventScroll: true });
+  }
+
+  function focusCloseButton(modal) {
+    const closeBtn = modal.querySelector('[data-team-modal="close-button"]');
+    if (closeBtn) closeBtn.focus({ preventScroll: true });
+  }
+
+  function handleKeydown(event) {
+    if (!activeModal) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      trapFocus(event, activeModal);
+    }
+  }
+
+  function trapFocus(event, modal) {
+    const focusable = getFocusableElements(modal);
+    if (!focusable.length) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey && (active === first || !modal.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function getFocusableElements(container) {
+    const selector = [
+      "a[href]",
+      "button:not([disabled])",
+      "textarea:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(",");
+    return Array.from(container.querySelectorAll(selector)).filter((el) => {
+      // Visible + actually focusable
+      return el.offsetParent !== null || el === document.activeElement;
+    });
+  }
+
+  function lockScroll() {
+    // If you use Lenis, replace this whole function with: window.lenis?.stop();
+    savedScrollY = window.scrollY;
+    const scrollbarWidth =
+      window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.paddingRight = `${scrollbarWidth}px`;
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${savedScrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.overflow = "hidden";
+  }
+
+  function unlockScroll() {
+    // If you use Lenis, replace this whole function with: window.lenis?.start();
+    document.body.style.paddingRight = "";
+    document.body.style.position = "";
+    document.body.style.top = "";
+    document.body.style.left = "";
+    document.body.style.right = "";
+    document.body.style.overflow = "";
+    window.scrollTo(0, savedScrollY);
+  }
+}
+
+function setupScrollMask(scrollEl) {
+  const FADE_THRESHOLD = 4;
+
+  const update = () => {
+    const { scrollTop, scrollHeight, clientHeight } = scrollEl;
+    const distanceFromTop = scrollTop;
+    const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+
+    // Smooth ramp into the mask rather than binary on/off
+    const topMask = Math.min(1, distanceFromTop / FADE_THRESHOLD);
+    const bottomMask = Math.min(1, distanceFromBottom / FADE_THRESHOLD);
+
+    scrollEl.style.setProperty("--mask-top", topMask.toFixed(3));
+    scrollEl.style.setProperty("--mask-bottom", bottomMask.toFixed(3));
+  };
+
+  scrollEl.addEventListener("scroll", update, { passive: true });
+
+  const resizeObserver = new ResizeObserver(update);
+  resizeObserver.observe(scrollEl);
+
+  update();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initProcessAnimation().then(() => {
+    initTechSection();
+    ScrollTrigger.refresh();
+  });
+  initTeamModals();
+});
+
+let scrollResizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(scrollResizeTimer);
+  scrollResizeTimer = setTimeout(() => {
+    ScrollTrigger.refresh();
+  }, 350);
+});
