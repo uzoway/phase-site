@@ -76,17 +76,10 @@ function initProcessAnimation() {
         positionStepNodes(stepNodes, isMobile, total);
         gsap.set(stepNodes, { autoAlpha: 0.25, scale: 0.6 });
 
-        // Reset all scenes: step 0 visible (progress 0), all others
-        // pre-scattered (progress 1, fully transparent). When transitioning
-        // forward, outgoing goes 0→1, incoming goes 1→0. On scroll-up,
-        // same logic but with from/to swapped — which is now correct
-        // because the previously-passed scene was left at progress 1.
         scenes.forEach((scene, i) => {
           scene.setProgress(i === 0 ? 0 : 1);
           scene.play();
         });
-
-        const state = { currentStep: 0 };
 
         const tl = gsap.timeline({
           defaults: { ease: "none" },
@@ -98,20 +91,6 @@ function initProcessAnimation() {
             scrub: 0.7,
             invalidateOnRefresh: true,
             refreshPriority: 1,
-            onUpdate: (self) => {
-              const targetStep = Math.min(
-                total - 1,
-                Math.max(0, Math.floor(self.progress * total)),
-              );
-
-              if (targetStep !== state.currentStep) {
-                transitionBetween(
-                  scenes[state.currentStep],
-                  scenes[targetStep],
-                );
-                state.currentStep = targetStep;
-              }
-            },
           },
         });
 
@@ -131,6 +110,17 @@ function initProcessAnimation() {
             const currentSpans = spansPerText[i];
             const nextText = texts[i + 1];
             const nextSpans = spansPerText[i + 1];
+
+            tl.to(
+              scenes[i].uniforms.uProgress,
+              { value: 1, duration: 1.2, ease: "power2.inOut" },
+              handoff,
+            );
+            tl.to(
+              scenes[i + 1].uniforms.uProgress,
+              { value: 0, duration: 1.2, ease: "power2.inOut" },
+              handoff,
+            );
 
             tl.to(
               currentSpans,
@@ -179,25 +169,6 @@ function initProcessAnimation() {
   });
 }
 
-function transitionBetween(fromScene, toScene) {
-  const TRANSITION_DURATION = 1.2;
-
-  gsap.killTweensOf([fromScene.uniforms.uProgress, toScene.uniforms.uProgress]);
-
-  gsap.to(fromScene.uniforms.uProgress, {
-    value: 1,
-    duration: TRANSITION_DURATION,
-    ease: "power2.in",
-  });
-
-  gsap.to(toScene.uniforms.uProgress, {
-    value: 0,
-    duration: TRANSITION_DURATION,
-    ease: "power2.out",
-    delay: TRANSITION_DURATION * 0.25,
-  });
-}
-
 function createParticleScene(mount, videoSrc, rotation) {
   const video = document.createElement("video");
   video.src = videoSrc;
@@ -231,11 +202,10 @@ function createParticleScene(mount, videoSrc, rotation) {
     uTime: { value: 0 },
     uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
     uSize: { value: 2.0 },
-    uContainerAspect: { value: 1.0 }, // container width / height
-    uVideoAspect: { value: 1.0 }, // video width / height
-    uRotation: { value: (rotation * Math.PI) / 180 }, // degrees → radians
-    uFadeRadius: { value: 0.48 }, // start of edge fade (0–0.5)
-    uFadeWidth: { value: 0.08 }, // width of fade band
+    uContainerAspect: { value: 1.0 },
+    uVideoAspect: { value: 1.0 },
+    uRotation: { value: (rotation * Math.PI) / 180 },
+    uFadeWidth: { value: 0.1 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -257,10 +227,7 @@ function createParticleScene(mount, videoSrc, rotation) {
 
     uniforms.uContainerAspect.value = w / h;
 
-    // Video aspect is known once metadata loads
     if (video.videoWidth && video.videoHeight) {
-      // For rotated videos (90/270), swap w/h for aspect calc since
-      // the rotation happens after sampling
       const isRotated90 = rotation === 90 || rotation === 270;
       uniforms.uVideoAspect.value = isRotated90
         ? video.videoHeight / video.videoWidth
@@ -339,7 +306,6 @@ function buildParticleGeometry(gridSize) {
       positions[i * 3 + 1] = (y / (gridSize - 1)) * 2 - 1;
       positions[i * 3 + 2] = 0;
 
-      // UVs in standard 0–1 range, no flip. We let texture.flipY handle it.
       uvs[i * 2 + 0] = x / (gridSize - 1);
       uvs[i * 2 + 1] = y / (gridSize - 1);
 
@@ -369,7 +335,7 @@ const PARTICLE_VERT = `
 
   varying vec2 vUv;
   varying float vAlpha;
-  varying vec2 vQuadPos;
+  varying vec2 vPos;
 
   vec2 rotate2D(vec2 v, float angle) {
     float c = cos(angle);
@@ -378,43 +344,38 @@ const PARTICLE_VERT = `
   }
 
   void main() {
-    // Reshape the quad to match container aspect, so particles fill
-    // the actual container instead of a square.
     vec3 pos = position;
-    pos.x *= uContainerAspect;
+    
+    // Store original NDC for fragment boundary mapping
+    vPos = pos.xy; 
 
-    vQuadPos = pos.xy / vec2(uContainerAspect, 1.0); // for edge fade
-
-    // ----- COVER-style UV sampling -----
-    // Center UVs around (0,0), scale so video fills container without
-    // distortion (matches CSS object-fit: cover), then re-center.
     vec2 uv = aUv - 0.5;
 
     float containerAspect = uContainerAspect;
     float videoAspect = uVideoAspect;
 
     if (containerAspect > videoAspect) {
-      // Container wider than video: scale UV.y to crop top/bottom
       uv.y *= videoAspect / containerAspect;
     } else {
-      // Container taller than video: scale UV.x to crop sides
       uv.x *= containerAspect / videoAspect;
     }
 
-    // Apply rotation for videos with bad orientation metadata
     uv = rotate2D(uv, uRotation);
-
     uv += 0.5;
     vUv = uv;
 
-    // ----- Scatter displacement -----
-    vec2 dir = normalize(pos.xy + vec2(0.0001));
+    // Convert vector math to physical aspect space so displacement is uniform
+    vec2 physicalPos = pos.xy * vec2(uContainerAspect, 1.0);
+    vec2 dir = normalize(physicalPos + vec2(0.0001));
+    
     float scatter = uProgress * (0.6 + aRandom * 1.4);
-
     float angle = aRandom * 6.28318 + uTime * 0.5;
     vec2 swirl = vec2(cos(angle), sin(angle)) * uProgress * 0.15;
 
-    pos.xy += dir * scatter + swirl;
+    vec2 physicalDisplacement = dir * scatter + swirl;
+
+    // Project displacement back into Normalized Device Coordinates
+    pos.xy += physicalDisplacement / vec2(uContainerAspect, 1.0);
 
     vAlpha = 1.0 - smoothstep(0.0, 0.7 + aRandom * 0.3, uProgress);
 
@@ -425,31 +386,30 @@ const PARTICLE_VERT = `
 
 const PARTICLE_FRAG = `
   uniform sampler2D uTexture;
-  uniform float uFadeRadius;
   uniform float uFadeWidth;
 
   varying vec2 vUv;
   varying float vAlpha;
-  varying vec2 vQuadPos;
+  varying vec2 vPos;
 
   void main() {
-    // Circular particle shape
     vec2 center = gl_PointCoord - 0.5;
     float dist = length(center);
     if (dist > 0.5) discard;
     float pointAlpha = smoothstep(0.5, 0.4, dist);
 
-    // Discard particles sampling outside the video (cover overflow)
     if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) discard;
 
     vec4 color = texture2D(uTexture, vUv);
 
-    // Soft circular edge fade for the container — particles dim toward
-    // the rim so the scatter dissolves instead of clipping at a hard edge.
-    float quadDist = length(vQuadPos);
-    float edgeFade = 1.0 - smoothstep(uFadeRadius, uFadeRadius + uFadeWidth, quadDist);
+    // Calculate distance from strict bounds
+    float edgeDistX = 1.0 - abs(vPos.x);
+    float edgeDistY = 1.0 - abs(vPos.y);
 
-    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha * edgeFade);
+    float fadeX = smoothstep(0.0, uFadeWidth, edgeDistX);
+    float fadeY = smoothstep(0.0, uFadeWidth, edgeDistY);
+
+    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha * fadeX * fadeY);
   }
 `;
 
