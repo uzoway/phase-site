@@ -64,7 +64,13 @@ function initProcessAnimation() {
         spansPerText
           .slice(1)
           .forEach((spans) => gsap.set(spans, { autoAlpha: 0 }));
-        gsap.set(videoMounts, { autoAlpha: 0, scale: 1.12 });
+
+        // Ensure outgoing videos are always visually on top of incoming videos during the scatter
+        gsap.set(videoMounts, {
+          autoAlpha: 0,
+          scale: 1.05,
+          zIndex: (i) => total - i,
+        });
         gsap.set(videoMounts[0], { autoAlpha: 1, scale: 1 });
 
         gsap.set(progressBar, {
@@ -76,8 +82,9 @@ function initProcessAnimation() {
         positionStepNodes(stepNodes, isMobile, total);
         gsap.set(stepNodes, { autoAlpha: 0.25, scale: 0.6 });
 
-        scenes.forEach((scene, i) => {
-          scene.setProgress(i === 0 ? 0 : 1);
+        scenes.forEach((scene) => {
+          // All scenes start fully formed mathematically
+          scene.setProgress(0);
           scene.play();
         });
 
@@ -111,15 +118,25 @@ function initProcessAnimation() {
             const nextText = texts[i + 1];
             const nextSpans = spansPerText[i + 1];
 
+            // 1. Scatter the outgoing video
             tl.to(
               scenes[i].uniforms.uProgress,
-              { value: 1, duration: 1.2, ease: "power2.inOut" },
+              { value: 1, duration: 1.2, ease: "power1.inOut" },
               handoff,
             );
+
+            // 2. Fade in the incoming video underneath it (no scatter)
             tl.to(
-              scenes[i + 1].uniforms.uProgress,
-              { value: 0, duration: 1.2, ease: "power2.inOut" },
-              handoff,
+              videoMounts[i + 1],
+              { autoAlpha: 1, scale: 1, duration: 0.8 },
+              handoff + 0.1,
+            );
+
+            // 3. Delay fading out the outgoing DOM element until the particles have fully dispersed
+            tl.to(
+              videoMounts[i],
+              { autoAlpha: 0, duration: 0.2 },
+              handoff + 1.1,
             );
 
             tl.to(
@@ -128,12 +145,7 @@ function initProcessAnimation() {
               handoff,
             );
             tl.to(text, { y: -12, duration: 0.45 }, handoff);
-            tl.to(videoMounts[i], { autoAlpha: 0, duration: 0.6 }, handoff);
-            tl.to(
-              videoMounts[i + 1],
-              { autoAlpha: 1, scale: 1, duration: 0.65 },
-              handoff + 0.15,
-            );
+
             tl.to(
               nextText,
               { autoAlpha: 1, y: 0, duration: 0.55 },
@@ -162,7 +174,7 @@ function initProcessAnimation() {
       gsap.set(videoMounts, { autoAlpha: 0 });
       gsap.set(videoMounts[0], { autoAlpha: 1 });
       scenes.forEach((scene, i) => {
-        scene.setProgress(i === 0 ? 0 : 1);
+        scene.setProgress(0);
         if (i === 0) scene.play();
       });
     });
@@ -198,14 +210,13 @@ function createParticleScene(mount, videoSrc, rotation) {
 
   const uniforms = {
     uTexture: { value: texture },
-    uProgress: { value: 1 },
+    uProgress: { value: 0 },
     uTime: { value: 0 },
     uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
     uSize: { value: 2.0 },
     uContainerAspect: { value: 1.0 },
     uVideoAspect: { value: 1.0 },
     uRotation: { value: (rotation * Math.PI) / 180 },
-    uFadeWidth: { value: 0.1 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -335,7 +346,6 @@ const PARTICLE_VERT = `
 
   varying vec2 vUv;
   varying float vAlpha;
-  varying vec2 vPos;
 
   vec2 rotate2D(vec2 v, float angle) {
     float c = cos(angle);
@@ -345,9 +355,6 @@ const PARTICLE_VERT = `
 
   void main() {
     vec3 pos = position;
-    
-    // Store original NDC for fragment boundary mapping
-    vPos = pos.xy; 
 
     vec2 uv = aUv - 0.5;
 
@@ -364,7 +371,6 @@ const PARTICLE_VERT = `
     uv += 0.5;
     vUv = uv;
 
-    // Convert vector math to physical aspect space so displacement is uniform
     vec2 physicalPos = pos.xy * vec2(uContainerAspect, 1.0);
     vec2 dir = normalize(physicalPos + vec2(0.0001));
     
@@ -374,10 +380,10 @@ const PARTICLE_VERT = `
 
     vec2 physicalDisplacement = dir * scatter + swirl;
 
-    // Project displacement back into Normalized Device Coordinates
     pos.xy += physicalDisplacement / vec2(uContainerAspect, 1.0);
 
-    vAlpha = 1.0 - smoothstep(0.0, 0.7 + aRandom * 0.3, uProgress);
+    // Adjusted smoothstep so particles hold opacity longer during the scatter phase
+    vAlpha = 1.0 - smoothstep(0.3, 0.9 + aRandom * 0.1, uProgress);
 
     gl_Position = vec4(pos, 1.0);
     gl_PointSize = uSize * uPixelRatio * (1.0 + aRandom * 0.5);
@@ -386,11 +392,9 @@ const PARTICLE_VERT = `
 
 const PARTICLE_FRAG = `
   uniform sampler2D uTexture;
-  uniform float uFadeWidth;
 
   varying vec2 vUv;
   varying float vAlpha;
-  varying vec2 vPos;
 
   void main() {
     vec2 center = gl_PointCoord - 0.5;
@@ -402,14 +406,7 @@ const PARTICLE_FRAG = `
 
     vec4 color = texture2D(uTexture, vUv);
 
-    // Calculate distance from strict bounds
-    float edgeDistX = 1.0 - abs(vPos.x);
-    float edgeDistY = 1.0 - abs(vPos.y);
-
-    float fadeX = smoothstep(0.0, uFadeWidth, edgeDistX);
-    float fadeY = smoothstep(0.0, uFadeWidth, edgeDistY);
-
-    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha * fadeX * fadeY);
+    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha);
   }
 `;
 
