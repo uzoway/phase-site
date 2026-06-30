@@ -57,15 +57,14 @@ function initProcessAnimation() {
         const totalDuration = (total - 1) * stepDuration;
         const barAxis = isMobile ? "scaleX" : "scaleY";
         const barOrigin = isMobile ? "left center" : "top center";
+        const TRANSITION_DURATION = 1.5;
 
-        gsap.set(texts, { autoAlpha: 1, y: 0 });
-        gsap.set(texts.slice(1), { autoAlpha: 0, y: 20 });
-        spansPerText[0] && gsap.set(spansPerText[0], { autoAlpha: 1 });
-        spansPerText
-          .slice(1)
-          .forEach((spans) => gsap.set(spans, { autoAlpha: 0 }));
+        gsap.set(texts, { autoAlpha: 0, y: 15 });
+        gsap.set(texts[0], { autoAlpha: 1, y: 0 });
+        spansPerText.forEach((spans, i) =>
+          gsap.set(spans, { autoAlpha: i === 0 ? 1 : 0 }),
+        );
 
-        // Ensure outgoing videos are always visually on top of incoming videos during the scatter
         gsap.set(videoMounts, {
           autoAlpha: 0,
           scale: 1.05,
@@ -81,12 +80,72 @@ function initProcessAnimation() {
 
         positionStepNodes(stepNodes, isMobile, total);
         gsap.set(stepNodes, { autoAlpha: 0.25, scale: 0.6 });
+        gsap.set(stepNodes[0], { autoAlpha: 1, scale: 1 });
 
         scenes.forEach((scene) => {
-          // All scenes start fully formed mathematically
           scene.setProgress(0);
           scene.play();
         });
+
+        let activeStep = 0;
+        let activeVideoTl = null;
+
+        function triggerVideoTransition(from, to) {
+          if (activeVideoTl) activeVideoTl.kill();
+          activeVideoTl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
+
+          videoMounts.forEach((mount, i) => {
+            if (i !== from && i !== to) {
+              gsap.set(mount, { autoAlpha: 0 });
+              gsap.set(scenes[i].uniforms.uProgress, { value: 1 });
+            }
+          });
+
+          const direction = to > from ? 1 : -1;
+
+          if (direction === 1) {
+            // Start the incoming video hidden so the outgoing has room to shatter
+            gsap.set(videoMounts[to], { zIndex: 1, scale: 1, autoAlpha: 0 });
+            gsap.set(scenes[to].uniforms.uProgress, { value: 0 });
+            gsap.set(videoMounts[from], { zIndex: 2 });
+
+            activeVideoTl.to(
+              scenes[from].uniforms.uProgress,
+              { value: 1, duration: TRANSITION_DURATION },
+              0,
+            );
+
+            // Fade in the incoming video starting at 33% of the way through the transition
+            activeVideoTl.to(
+              videoMounts[to],
+              { autoAlpha: 1, duration: TRANSITION_DURATION * 0.6 },
+              TRANSITION_DURATION * 0.33,
+            );
+
+            activeVideoTl.to(
+              videoMounts[from],
+              { autoAlpha: 0, duration: 0.2 },
+              TRANSITION_DURATION - 0.2,
+            );
+          } else {
+            // Reverse: The incoming video assembles on top, so fade out the bottom one on a delay
+            gsap.set(videoMounts[to], { zIndex: 2, scale: 1, autoAlpha: 1 });
+            gsap.set(scenes[to].uniforms.uProgress, { value: 1 });
+            gsap.set(videoMounts[from], { zIndex: 1, autoAlpha: 1 });
+
+            activeVideoTl.to(
+              scenes[to].uniforms.uProgress,
+              { value: 0, duration: TRANSITION_DURATION },
+              0,
+            );
+
+            activeVideoTl.to(
+              videoMounts[from],
+              { autoAlpha: 0, duration: TRANSITION_DURATION * 0.6 },
+              TRANSITION_DURATION * 0.33,
+            );
+          }
+        }
 
         const tl = gsap.timeline({
           defaults: { ease: "none" },
@@ -98,63 +157,55 @@ function initProcessAnimation() {
             scrub: 0.7,
             invalidateOnRefresh: true,
             refreshPriority: 1,
+            onUpdate: (self) => {
+              const targetStep = Math.round(self.progress * (total - 1));
+
+              if (targetStep !== activeStep) {
+                triggerVideoTransition(activeStep, targetStep);
+                activeStep = targetStep;
+              }
+            },
           },
         });
 
         tl.to(progressBar, { [barAxis]: 1, duration: totalDuration }, 0);
 
         stepNodes.forEach((node, i) => {
-          tl.to(
-            node,
-            { autoAlpha: 1, scale: 1, duration: 0.35 },
-            i * stepDuration,
-          );
+          if (i > 0) {
+            tl.to(
+              node,
+              { autoAlpha: 1, scale: 1, duration: 0.35 },
+              i * stepDuration - 0.35,
+            );
+          }
         });
 
         texts.forEach((text, i) => {
           if (i < total - 1) {
-            const handoff = (i + 1) * stepDuration - 0.5;
+            const handoff = i * stepDuration + stepDuration / 2;
             const currentSpans = spansPerText[i];
             const nextText = texts[i + 1];
             const nextSpans = spansPerText[i + 1];
 
-            // 1. Scatter the outgoing video
-            tl.to(
-              scenes[i].uniforms.uProgress,
-              { value: 1, duration: 1.2, ease: "power1.inOut" },
-              handoff,
-            );
-
-            // 2. Fade in the incoming video underneath it (no scatter)
-            tl.to(
-              videoMounts[i + 1],
-              { autoAlpha: 1, scale: 1, duration: 0.8 },
-              handoff + 0.1,
-            );
-
-            // 3. Delay fading out the outgoing DOM element until the particles have fully dispersed
-            tl.to(
-              videoMounts[i],
-              { autoAlpha: 0, duration: 0.2 },
-              handoff + 1.1,
-            );
-
+            // Choreography Fix: Tighten the gap. The outgoing leaves slightly earlier...
             tl.to(
               currentSpans,
               { autoAlpha: 0, duration: 0.3, stagger: 0.04 },
-              handoff,
+              handoff - 0.5,
             );
-            tl.to(text, { y: -12, duration: 0.45 }, handoff);
+            tl.to(text, { y: -15, autoAlpha: 0, duration: 0.4 }, handoff - 0.5);
 
-            tl.to(
+            // ...and the incoming starts almost immediately as the video is firing (handoff - 0.1 instead of handoff)
+            tl.fromTo(
               nextText,
-              { autoAlpha: 1, y: 0, duration: 0.55 },
-              handoff + 0.2,
+              { y: 15 },
+              { y: 0, autoAlpha: 1, duration: 0.4 },
+              handoff - 0.1,
             );
             tl.to(
               nextSpans,
-              { autoAlpha: 1, duration: 0.5, stagger: 0.18 },
-              handoff + 0.25,
+              { autoAlpha: 1, duration: 0.4, stagger: 0.04 },
+              handoff,
             );
           }
         });
@@ -382,7 +433,6 @@ const PARTICLE_VERT = `
 
     pos.xy += physicalDisplacement / vec2(uContainerAspect, 1.0);
 
-    // Adjusted smoothstep so particles hold opacity longer during the scatter phase
     vAlpha = 1.0 - smoothstep(0.3, 0.9 + aRandom * 0.1, uProgress);
 
     gl_Position = vec4(pos, 1.0);
