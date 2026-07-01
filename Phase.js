@@ -688,8 +688,8 @@ function initTechSection() {
   function resetToReadState() {
     gsap.set(readDescription, { autoAlpha: 1, y: 0 });
     gsap.set(writeDescription, { autoAlpha: 0, y: 20 });
-    gsap.set(readLottieEl, { autoAlpha: 1, scale: 1 });
-    gsap.set(writeLottieEl, { autoAlpha: 0, scale: 1.12 });
+    gsap.set(readLottieEl, { autoAlpha: 1 });
+    gsap.set(writeLottieEl, { autoAlpha: 0 });
     gsap.set(readLabel, { color: ACTIVE_COLOR });
     gsap.set(writeLabel, { color: INACTIVE_COLOR });
     gsap.set(progressBar, { scaleX: 0, transformOrigin: "left center" });
@@ -698,7 +698,6 @@ function initTechSection() {
 
   const mm = gsap.matchMedia();
 
-  // DESKTOP + TABLET (≥768px): pinned, scroll-driven
   mm.add("(min-width: 768px)", () => {
     resetToReadState();
 
@@ -720,18 +719,14 @@ function initTechSection() {
     tl.to(progressBar, { scaleX: 1, duration: totalDuration }, 0);
 
     tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, handoff);
-    tl.to(readLottieEl, { autoAlpha: 0, scale: 0.88, duration: 0.6 }, handoff);
+    tl.to(readLottieEl, { autoAlpha: 0, duration: 0.6 }, handoff);
     tl.to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, handoff);
 
     if (bgOverlay) {
       tl.to(bgOverlay, { autoAlpha: 1, duration: 0.9 }, handoff - 0.1);
     }
 
-    tl.to(
-      writeLottieEl,
-      { autoAlpha: 1, scale: 1, duration: 0.65 },
-      handoff + 0.15,
-    );
+    tl.to(writeLottieEl, { autoAlpha: 1, duration: 0.65 }, handoff + 0.15);
     tl.to(
       writeDescription,
       { autoAlpha: 1, y: 0, duration: 0.5 },
@@ -740,7 +735,6 @@ function initTechSection() {
     tl.to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, handoff + 0.2);
   });
 
-  // MOBILE (≤767px): no pin, autoplay sequence on enter
   mm.add("(max-width: 767px)", () => {
     resetToReadState();
 
@@ -766,14 +760,14 @@ function initTechSection() {
       const tl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
 
       tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, 0)
-        .to(readLottieEl, { autoAlpha: 0, scale: 0.88, duration: 0.55 }, 0)
+        .to(readLottieEl, { autoAlpha: 0, duration: 0.55 }, 0)
         .to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, 0);
 
       if (bgOverlay) {
         tl.to(bgOverlay, { autoAlpha: 1, duration: 0.8 }, 0);
       }
 
-      tl.to(writeLottieEl, { autoAlpha: 1, scale: 1, duration: 0.6 }, 0.15)
+      tl.to(writeLottieEl, { autoAlpha: 1, duration: 0.6 }, 0.15)
         .to(writeDescription, { autoAlpha: 1, y: 0, duration: 0.5 }, 0.2)
         .to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, 0.2)
         .call(
@@ -790,7 +784,6 @@ function initTechSection() {
     }
   });
 
-  // REDUCED MOTION: static read state, no animation
   mm.add("(prefers-reduced-motion: reduce)", () => {
     resetToReadState();
     gsap.set(progressBar, { scaleX: 0.5 });
