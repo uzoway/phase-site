@@ -658,16 +658,19 @@ function initTechSection() {
   const writeDescription = section.querySelector(
     '[data-tech="write-description"]',
   );
-  const readLottieEl = section.querySelector('[data-tech="read-lottie"]');
-  const writeLottieEl = section.querySelector('[data-tech="write-lottie"]');
   const progressBar = section.querySelector('[data-tech="progress-bar"]');
-  const diagramWrap = section.querySelector(".tech_diagram-wrap");
   const [readLabel, writeLabel] = section.querySelectorAll(
     '[data-tech="progress-text"]',
   );
 
-  if (!readDescription || !writeDescription || !readLottieEl || !writeLottieEl)
-    return;
+  const visualContainer = section.querySelector('[data-tech="read-lottie"]');
+  if (!readDescription || !writeDescription || !visualContainer) return;
+
+  // Isolate the Read and Write elements inside the container
+  const writeVisuals = visualContainer.querySelectorAll(".uc-write");
+  const readVisuals = visualContainer.querySelectorAll(
+    ".tech_vid-wrap:not(.uc-write) .tech_vid-embed, .tech_image:not(.uc-write), .tech_mid-line:not(.uc-write), .tech_top-row-line",
+  );
 
   const ACTIVE_COLOR = "#030611";
   const INACTIVE_COLOR = "#6E97A2";
@@ -681,15 +684,18 @@ function initTechSection() {
     ? buildBackgroundOverlay(section, WRITE_GRADIENT)
     : null;
 
-  gsap.set([readDescription, writeDescription, readLottieEl, writeLottieEl], {
+  gsap.set([readDescription, writeDescription, readVisuals, writeVisuals], {
     willChange: "transform, opacity",
   });
 
   function resetToReadState() {
     gsap.set(readDescription, { autoAlpha: 1, y: 0 });
     gsap.set(writeDescription, { autoAlpha: 0, y: 20 });
-    gsap.set(readLottieEl, { autoAlpha: 1 });
-    gsap.set(writeLottieEl, { autoAlpha: 0 });
+
+    gsap.set(visualContainer, { autoAlpha: 1 });
+    gsap.set(readVisuals, { autoAlpha: 1 });
+    gsap.set(writeVisuals, { autoAlpha: 0 });
+
     gsap.set(readLabel, { color: ACTIVE_COLOR });
     gsap.set(writeLabel, { color: INACTIVE_COLOR });
     gsap.set(progressBar, { scaleX: 0, transformOrigin: "left center" });
@@ -719,14 +725,17 @@ function initTechSection() {
     tl.to(progressBar, { scaleX: 1, duration: totalDuration }, 0);
 
     tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, handoff);
-    tl.to(readLottieEl, { autoAlpha: 0, duration: 0.6 }, handoff);
+
+    // Fade out specific Read visuals
+    tl.to(readVisuals, { autoAlpha: 0, duration: 0.6 }, handoff);
     tl.to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, handoff);
 
     if (bgOverlay) {
       tl.to(bgOverlay, { autoAlpha: 1, duration: 0.9 }, handoff - 0.1);
     }
 
-    tl.to(writeLottieEl, { autoAlpha: 1, duration: 0.65 }, handoff + 0.15);
+    // Fade in specific Write visuals
+    tl.to(writeVisuals, { autoAlpha: 1, duration: 0.65 }, handoff + 0.15);
     tl.to(
       writeDescription,
       { autoAlpha: 1, y: 0, duration: 0.5 },
@@ -760,14 +769,14 @@ function initTechSection() {
       const tl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
 
       tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, 0)
-        .to(readLottieEl, { autoAlpha: 0, duration: 0.55 }, 0)
+        .to(readVisuals, { autoAlpha: 0, duration: 0.55 }, 0)
         .to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, 0);
 
       if (bgOverlay) {
         tl.to(bgOverlay, { autoAlpha: 1, duration: 0.8 }, 0);
       }
 
-      tl.to(writeLottieEl, { autoAlpha: 1, duration: 0.6 }, 0.15)
+      tl.to(writeVisuals, { autoAlpha: 1, duration: 0.6 }, 0.15)
         .to(writeDescription, { autoAlpha: 1, y: 0, duration: 0.5 }, 0.2)
         .to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, 0.2)
         .call(
