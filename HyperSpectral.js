@@ -471,4 +471,116 @@ function initTypewriter() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", initTypewriter);
+function initFaqTabs() {
+  const config = {
+    baseOpacity: 0.5,
+    charStagger: 0.006,
+    charDuration: 0.05,
+    transitionDuration: 0.4,
+  };
+
+  const wrapper = document.querySelector("[data-faq-wrapper]");
+  if (!wrapper) return;
+
+  const buttons = wrapper.querySelectorAll("[data-faq-trigger]");
+  const targets = wrapper.querySelectorAll("[data-faq-target]");
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  let activeIndex = "1";
+  let activeTimeline = null;
+  const splitInstances = new Map();
+
+  wrapper.setAttribute("aria-live", "polite");
+
+  if (!prefersReducedMotion) {
+    targets.forEach((target) => {
+      const index = target.getAttribute("data-faq-target");
+      const split = new SplitText(target, { type: "words, chars" });
+      splitInstances.set(index, split);
+
+      if (index !== activeIndex) {
+        gsap.set(split.chars, { opacity: config.baseOpacity });
+      }
+    });
+  }
+
+  function switchTab(newIndex) {
+    if (newIndex === activeIndex || !newIndex) return;
+
+    const oldTarget = wrapper.querySelector(
+      `[data-faq-target="${activeIndex}"]`,
+    );
+    const newTarget = wrapper.querySelector(`[data-faq-target="${newIndex}"]`);
+    const oldBtn = wrapper.querySelector(`[data-faq-trigger="${activeIndex}"]`);
+    const newBtn = wrapper.querySelector(`[data-faq-trigger="${newIndex}"]`);
+
+    if (activeTimeline) activeTimeline.kill();
+
+    oldBtn.removeAttribute("data-is-active");
+    newBtn.setAttribute("data-is-active", "");
+
+    gsap.to(oldTarget, {
+      autoAlpha: 0,
+      duration: config.transitionDuration,
+      pointerEvents: "none",
+      ease: "power2.inOut",
+    });
+
+    activeIndex = newIndex;
+
+    if (prefersReducedMotion) {
+      gsap.to(newTarget, {
+        autoAlpha: 1,
+        duration: config.transitionDuration,
+        pointerEvents: "auto",
+        ease: "power2.inOut",
+      });
+      return;
+    }
+
+    const currentSplit = splitInstances.get(newIndex);
+    if (!currentSplit) return;
+
+    newTarget.setAttribute("aria-hidden", "true");
+
+    activeTimeline = gsap.timeline();
+
+    activeTimeline
+      .to(newTarget, {
+        autoAlpha: 1,
+        duration: config.transitionDuration,
+        pointerEvents: "auto",
+        ease: "power2.inOut",
+      })
+      .fromTo(
+        currentSplit.chars,
+        { opacity: config.baseOpacity },
+        {
+          opacity: 1,
+          duration: config.charDuration,
+          ease: "power1.out",
+          stagger: {
+            each: config.charStagger,
+            ease: "power2.inOut",
+          },
+          onComplete: () => {
+            newTarget.removeAttribute("aria-hidden");
+          },
+        },
+      );
+  }
+
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetIndex = btn.getAttribute("data-faq-trigger");
+      switchTab(targetIndex);
+    });
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initTypewriter();
+  initFaqTabs();
+});
