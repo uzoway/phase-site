@@ -119,289 +119,356 @@
 
 // document.addEventListener("DOMContentLoaded", initPartnerTabs);
 
-function initTabTransitions() {
-  const tabWrapper = document.querySelector("[data-tab-wrapper]");
-  const buttons = document.querySelectorAll("[data-tab-btn]");
-  const panels = document.querySelectorAll("[data-tab-panel]");
-  const stages = document.querySelectorAll("[data-stage]");
+// function initTabTransitions() {
+//   const tabWrapper = document.querySelector("[data-tab-wrapper]");
+//   const buttons = document.querySelectorAll("[data-tab-btn]");
+//   const panels = document.querySelectorAll("[data-tab-panel]");
+//   const stages = document.querySelectorAll("[data-stage]");
 
-  const TAB_GRADIENTS = {
-    "clinical-diagnostics":
-      "linear-gradient(97.85deg, #e33e5c -5.84%, #e33ec0 39.15%, #8164ec 100.08%)",
-    biomanufacturing: "linear-gradient(270deg, #676CFB 39.15%, #BC41E7 100%)",
-    "food-supply-chain":
-      "linear-gradient(270deg, #FAFE80 39.15%, #23CC40 110.89%)",
-    "defence-security": "linear-gradient(270deg, #6EFF9A 39.15%, #87C6FF 100%)",
-    "quality-control": "linear-gradient(270deg, #B63600 39.15%, #DAC735 100%)",
-    "your-domain": "linear-gradient(270deg, #020001 39.15%, #020001 100%)",
+//   const TAB_GRADIENTS = {
+//     "clinical-diagnostics":
+//       "linear-gradient(97.85deg, #e33e5c -5.84%, #e33ec0 39.15%, #8164ec 100.08%)",
+//     biomanufacturing: "linear-gradient(270deg, #676CFB 39.15%, #BC41E7 100%)",
+//     "food-supply-chain":
+//       "linear-gradient(270deg, #FAFE80 39.15%, #23CC40 110.89%)",
+//     "defence-security": "linear-gradient(270deg, #6EFF9A 39.15%, #87C6FF 100%)",
+//     "quality-control": "linear-gradient(270deg, #B63600 39.15%, #DAC735 100%)",
+//     "your-domain": "linear-gradient(270deg, #020001 39.15%, #020001 100%)",
+//   };
+
+//   if (!tabWrapper || buttons.length === 0 || panels.length === 0) {
+//     console.warn("Tab Component: Missing required data attributes.");
+//     return;
+//   }
+
+//   let activeId = buttons[0].getAttribute("data-tab-btn");
+//   let isAnimating = false;
+//   let gradientEl = null;
+//   let gradientOverlay = null;
+
+//   function setupAccessibility() {
+//     buttons.forEach((btn) => {
+//       const id = btn.getAttribute("data-tab-btn");
+//       const panel = document.querySelector(`[data-tab-panel="${id}"]`);
+
+//       btn.setAttribute("id", `tab-btn-${id}`);
+//       btn.setAttribute("aria-controls", `tab-panel-${id}`);
+
+//       if (panel) {
+//         panel.setAttribute("id", `tab-panel-${id}`);
+//         panel.setAttribute("role", "tabpanel");
+//         panel.setAttribute("aria-labelledby", `tab-btn-${id}`);
+//       }
+//     });
+//   }
+
+//   function setup() {
+//     setupAccessibility();
+//     gsap.set(tabWrapper, { position: "relative" });
+
+//     buttons.forEach((btn, index) => {
+//       const id = btn.getAttribute("data-tab-btn");
+//       const panel = document.querySelector(`[data-tab-panel="${id}"]`);
+//       const isFirst = index === 0;
+
+//       btn.setAttribute("aria-selected", isFirst);
+//       btn.setAttribute("tabindex", isFirst ? "0" : "-1");
+//       if (isFirst) btn.setAttribute("data-is-active", "true");
+
+//       if (panel) {
+//         panel.setAttribute("aria-hidden", !isFirst);
+//         gsap.set(panel, {
+//           autoAlpha: isFirst ? 1 : 0,
+//           position: isFirst ? "relative" : "absolute",
+//           top: 0,
+//           left: 0,
+//           width: "100%",
+//           pointerEvents: isFirst ? "auto" : "none",
+//         });
+//       }
+//     });
+
+//     stages.forEach((stage, index) => {
+//       gsap.set(stage, { autoAlpha: index === 0 ? 1 : 0 });
+//     });
+
+//     gradientEl = document.querySelector('[data-tab="gradient-text"]');
+
+//     if (gradientEl) {
+//       const wrapper = document.createElement("span");
+//       wrapper.style.position = "relative";
+//       wrapper.style.display = "inline-block";
+//       gradientEl.parentNode.insertBefore(wrapper, gradientEl);
+//       wrapper.appendChild(gradientEl);
+
+//       gradientOverlay = gradientEl.cloneNode(true);
+//       gradientOverlay.removeAttribute("data-tab");
+//       gradientOverlay.setAttribute("aria-hidden", "true");
+//       Object.assign(gradientOverlay.style, {
+//         position: "absolute",
+//         top: "0",
+//         left: "0",
+//         width: "100%",
+//         height: "100%",
+//         opacity: "0",
+//         pointerEvents: "none",
+//       });
+//       wrapper.appendChild(gradientOverlay);
+//     }
+//   }
+
+//   function transitionTabs(newId) {
+//     if (isAnimating || newId === activeId) return;
+
+//     const oldBtn = document.querySelector(`[data-tab-btn="${activeId}"]`);
+//     const newBtn = document.querySelector(`[data-tab-btn="${newId}"]`);
+//     const oldPanel = document.querySelector(`[data-tab-panel="${activeId}"]`);
+//     const newPanel = document.querySelector(`[data-tab-panel="${newId}"]`);
+//     const oldStage = document.querySelector(`[data-stage="${activeId}"]`);
+//     const newStage = document.querySelector(`[data-stage="${newId}"]`);
+
+//     if (!newBtn || !newPanel) return;
+//     isAnimating = true;
+
+//     const staggerElements = newPanel.querySelectorAll("[data-tab-stagger]");
+
+//     if (oldBtn) {
+//       oldBtn.setAttribute("aria-selected", "false");
+//       oldBtn.setAttribute("tabindex", "-1");
+//       oldBtn.removeAttribute("data-is-active");
+//     }
+//     newBtn.setAttribute("aria-selected", "true");
+//     newBtn.setAttribute("tabindex", "0");
+//     newBtn.setAttribute("data-is-active", "true");
+//     if (oldPanel) oldPanel.setAttribute("aria-hidden", "true");
+//     newPanel.setAttribute("aria-hidden", "false");
+
+//     const startHeight = tabWrapper.offsetHeight;
+//     gsap.set(tabWrapper, { height: startHeight, overflow: "hidden" });
+
+//     if (oldPanel) {
+//       gsap.set(oldPanel, { position: "absolute" });
+//     }
+
+//     gsap.set(newPanel, {
+//       position: "relative",
+//       autoAlpha: 1,
+//       y: 0,
+//       width: "100%",
+//       top: 0,
+//       left: 0,
+//       pointerEvents: "auto",
+//     });
+//     gsap.set(staggerElements, { y: 0, autoAlpha: 1 });
+
+//     tabWrapper.style.height = "auto";
+//     const targetHeight = tabWrapper.offsetHeight;
+//     tabWrapper.style.height = startHeight + "px";
+
+//     gsap.set(newPanel, { autoAlpha: 0 });
+
+//     const tl = gsap.timeline({
+//       onComplete: () => {
+//         activeId = newId;
+//         isAnimating = false;
+//         newBtn.focus();
+//         gsap.set(tabWrapper, { clearProps: "height,overflow" });
+//       },
+//     });
+
+//     tl.to(
+//       tabWrapper,
+//       {
+//         height: targetHeight,
+//         duration: 0.4,
+//         ease: "power3.inOut",
+//       },
+//       0,
+//     );
+
+//     if (oldPanel) {
+//       tl.to(
+//         oldPanel,
+//         {
+//           autoAlpha: 0,
+//           y: -10,
+//           duration: 0.3,
+//           pointerEvents: "none",
+//           ease: "power2.in",
+//         },
+//         0,
+//       );
+//     }
+
+//     tl.fromTo(
+//       newPanel,
+//       { autoAlpha: 0, y: 15 },
+//       {
+//         autoAlpha: 1,
+//         y: 0,
+//         duration: 0.4,
+//         pointerEvents: "auto",
+//         ease: "power2.out",
+//       },
+//       0.1,
+//     );
+
+//     if (staggerElements.length > 0) {
+//       tl.fromTo(
+//         staggerElements,
+//         { autoAlpha: 0, y: 10 },
+//         {
+//           autoAlpha: 1,
+//           y: 0,
+//           duration: 0.4,
+//           stagger: 0.05,
+//           ease: "power2.out",
+//         },
+//         0.15,
+//       );
+//     }
+
+//     if (gradientEl && gradientOverlay) {
+//       gradientOverlay.style.background = TAB_GRADIENTS[newId];
+//       gradientOverlay.style.webkitBackgroundClip = "text";
+//       gradientOverlay.style.webkitTextFillColor = "transparent";
+
+//       tl.fromTo(
+//         gradientOverlay,
+//         { opacity: 0 },
+//         {
+//           opacity: 1,
+//           duration: 0.5,
+//           ease: "power2.inOut",
+//           onComplete: () => {
+//             gradientEl.style.background = TAB_GRADIENTS[newId];
+//             gradientEl.style.webkitBackgroundClip = "text";
+//             gradientEl.style.webkitTextFillColor = "transparent";
+//             gsap.set(gradientOverlay, { opacity: 0 });
+//           },
+//         },
+//         0,
+//       );
+//     }
+
+//     if (
+//       window.matchMedia("(min-width: 991px)").matches &&
+//       oldStage &&
+//       newStage
+//     ) {
+//       tl.to(oldStage, { autoAlpha: 0, duration: 0.6, ease: "power1.inOut" }, 0);
+//       tl.fromTo(
+//         newStage,
+//         { autoAlpha: 0 },
+//         { autoAlpha: 1, duration: 0.6, ease: "power1.inOut" },
+//         0,
+//       );
+//     }
+//   }
+
+//   buttons.forEach((btn, index) => {
+//     btn.addEventListener("click", (e) => {
+//       transitionTabs(e.currentTarget.getAttribute("data-tab-btn"));
+//     });
+
+//     btn.addEventListener("keydown", (e) => {
+//       let nextIndex;
+//       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+//         nextIndex = index + 1 >= buttons.length ? 0 : index + 1;
+//       } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+//         nextIndex = index - 1 < 0 ? buttons.length - 1 : index - 1;
+//       }
+//       if (nextIndex !== undefined) {
+//         e.preventDefault();
+//         buttons[nextIndex].click();
+//       }
+//     });
+//   });
+
+//   let resizeTimer;
+//   const resizeObserver = new ResizeObserver(() => {
+//     clearTimeout(resizeTimer);
+//     resizeTimer = setTimeout(() => {
+//       if (!isAnimating) {
+//         const activePanel = document.querySelector(
+//           `[data-tab-panel="${activeId}"]`,
+//         );
+//         if (activePanel) {
+//           gsap.set(tabWrapper, { height: activePanel.offsetHeight });
+//         }
+//       }
+//     }, 150);
+//   });
+
+//   resizeObserver.observe(tabWrapper);
+//   setup();
+// }
+
+// document.addEventListener("DOMContentLoaded", initTabTransitions);
+
+function initTypewriter() {
+  const config = {
+    typeSpeedPerChar: 0.05,
+    deleteSpeedPerChar: 0.03,
+    holdDuration: 3.5,
   };
 
-  if (!tabWrapper || buttons.length === 0 || panels.length === 0) {
-    console.warn("Tab Component: Missing required data attributes.");
+  const wrapper = document.querySelector("[data-typewriter-wrapper]");
+  if (!wrapper) return;
+
+  const target = wrapper.querySelector("[data-typewriter-target]");
+
+  wrapper.setAttribute("aria-live", "polite");
+  wrapper.setAttribute("aria-atomic", "true");
+
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  const phrases = [
+    wrapper.getAttribute("data-typewriter-one"),
+    wrapper.getAttribute("data-typewriter-two"),
+    wrapper.getAttribute("data-typewriter-three"),
+  ].filter(Boolean);
+
+  if (phrases.length === 0) return;
+
+  if (prefersReducedMotion) {
+    target.textContent = phrases[0];
     return;
   }
 
-  let activeId = buttons[0].getAttribute("data-tab-btn");
-  let isAnimating = false;
-  let gradientEl = null;
-  let gradientOverlay = null;
+  target.textContent = "\u00A0";
 
-  function setupAccessibility() {
-    buttons.forEach((btn) => {
-      const id = btn.getAttribute("data-tab-btn");
-      const panel = document.querySelector(`[data-tab-panel="${id}"]`);
+  const masterTimeline = gsap.timeline({ repeat: -1 });
 
-      btn.setAttribute("id", `tab-btn-${id}`);
-      btn.setAttribute("aria-controls", `tab-panel-${id}`);
+  phrases.forEach((phrase) => {
+    const textProxy = { length: 0 };
+    const phraseTimeline = gsap.timeline();
 
-      if (panel) {
-        panel.setAttribute("id", `tab-panel-${id}`);
-        panel.setAttribute("role", "tabpanel");
-        panel.setAttribute("aria-labelledby", `tab-btn-${id}`);
-      }
-    });
-  }
-
-  function setup() {
-    setupAccessibility();
-    gsap.set(tabWrapper, { position: "relative" });
-
-    buttons.forEach((btn, index) => {
-      const id = btn.getAttribute("data-tab-btn");
-      const panel = document.querySelector(`[data-tab-panel="${id}"]`);
-      const isFirst = index === 0;
-
-      btn.setAttribute("aria-selected", isFirst);
-      btn.setAttribute("tabindex", isFirst ? "0" : "-1");
-      if (isFirst) btn.setAttribute("data-is-active", "true");
-
-      if (panel) {
-        panel.setAttribute("aria-hidden", !isFirst);
-        gsap.set(panel, {
-          autoAlpha: isFirst ? 1 : 0,
-          position: isFirst ? "relative" : "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          pointerEvents: isFirst ? "auto" : "none",
-        });
-      }
-    });
-
-    stages.forEach((stage, index) => {
-      gsap.set(stage, { autoAlpha: index === 0 ? 1 : 0 });
-    });
-
-    gradientEl = document.querySelector('[data-tab="gradient-text"]');
-
-    if (gradientEl) {
-      const wrapper = document.createElement("span");
-      wrapper.style.position = "relative";
-      wrapper.style.display = "inline-block";
-      gradientEl.parentNode.insertBefore(wrapper, gradientEl);
-      wrapper.appendChild(gradientEl);
-
-      gradientOverlay = gradientEl.cloneNode(true);
-      gradientOverlay.removeAttribute("data-tab");
-      gradientOverlay.setAttribute("aria-hidden", "true");
-      Object.assign(gradientOverlay.style, {
-        position: "absolute",
-        top: "0",
-        left: "0",
-        width: "100%",
-        height: "100%",
-        opacity: "0",
-        pointerEvents: "none",
+    phraseTimeline
+      .to(textProxy, {
+        length: phrase.length,
+        duration: phrase.length * config.typeSpeedPerChar,
+        ease: "none",
+        onUpdate: () => {
+          target.textContent =
+            phrase.substring(0, Math.round(textProxy.length)) || "\u00A0";
+        },
+      })
+      .to({}, { duration: config.holdDuration })
+      .to(textProxy, {
+        length: 0,
+        duration: phrase.length * config.deleteSpeedPerChar,
+        ease: "none",
+        onUpdate: () => {
+          target.textContent =
+            phrase.substring(0, Math.round(textProxy.length)) || "\u00A0";
+        },
       });
-      wrapper.appendChild(gradientOverlay);
-    }
-  }
 
-  function transitionTabs(newId) {
-    if (isAnimating || newId === activeId) return;
-
-    const oldBtn = document.querySelector(`[data-tab-btn="${activeId}"]`);
-    const newBtn = document.querySelector(`[data-tab-btn="${newId}"]`);
-    const oldPanel = document.querySelector(`[data-tab-panel="${activeId}"]`);
-    const newPanel = document.querySelector(`[data-tab-panel="${newId}"]`);
-    const oldStage = document.querySelector(`[data-stage="${activeId}"]`);
-    const newStage = document.querySelector(`[data-stage="${newId}"]`);
-
-    if (!newBtn || !newPanel) return;
-    isAnimating = true;
-
-    const staggerElements = newPanel.querySelectorAll("[data-tab-stagger]");
-
-    if (oldBtn) {
-      oldBtn.setAttribute("aria-selected", "false");
-      oldBtn.setAttribute("tabindex", "-1");
-      oldBtn.removeAttribute("data-is-active");
-    }
-    newBtn.setAttribute("aria-selected", "true");
-    newBtn.setAttribute("tabindex", "0");
-    newBtn.setAttribute("data-is-active", "true");
-    if (oldPanel) oldPanel.setAttribute("aria-hidden", "true");
-    newPanel.setAttribute("aria-hidden", "false");
-
-    const startHeight = tabWrapper.offsetHeight;
-    gsap.set(tabWrapper, { height: startHeight, overflow: "hidden" });
-
-    if (oldPanel) {
-      gsap.set(oldPanel, { position: "absolute" });
-    }
-
-    gsap.set(newPanel, {
-      position: "relative",
-      autoAlpha: 1,
-      y: 0,
-      width: "100%",
-      top: 0,
-      left: 0,
-      pointerEvents: "auto",
-    });
-    gsap.set(staggerElements, { y: 0, autoAlpha: 1 });
-
-    tabWrapper.style.height = "auto";
-    const targetHeight = tabWrapper.offsetHeight;
-    tabWrapper.style.height = startHeight + "px";
-
-    gsap.set(newPanel, { autoAlpha: 0 });
-
-    const tl = gsap.timeline({
-      onComplete: () => {
-        activeId = newId;
-        isAnimating = false;
-        newBtn.focus();
-        gsap.set(tabWrapper, { clearProps: "height,overflow" });
-      },
-    });
-
-    tl.to(
-      tabWrapper,
-      {
-        height: targetHeight,
-        duration: 0.4,
-        ease: "power3.inOut",
-      },
-      0,
-    );
-
-    if (oldPanel) {
-      tl.to(
-        oldPanel,
-        {
-          autoAlpha: 0,
-          y: -10,
-          duration: 0.3,
-          pointerEvents: "none",
-          ease: "power2.in",
-        },
-        0,
-      );
-    }
-
-    tl.fromTo(
-      newPanel,
-      { autoAlpha: 0, y: 15 },
-      {
-        autoAlpha: 1,
-        y: 0,
-        duration: 0.4,
-        pointerEvents: "auto",
-        ease: "power2.out",
-      },
-      0.1,
-    );
-
-    if (staggerElements.length > 0) {
-      tl.fromTo(
-        staggerElements,
-        { autoAlpha: 0, y: 10 },
-        {
-          autoAlpha: 1,
-          y: 0,
-          duration: 0.4,
-          stagger: 0.05,
-          ease: "power2.out",
-        },
-        0.15,
-      );
-    }
-
-    if (gradientEl && gradientOverlay) {
-      gradientOverlay.style.background = TAB_GRADIENTS[newId];
-      gradientOverlay.style.webkitBackgroundClip = "text";
-      gradientOverlay.style.webkitTextFillColor = "transparent";
-
-      tl.fromTo(
-        gradientOverlay,
-        { opacity: 0 },
-        {
-          opacity: 1,
-          duration: 0.5,
-          ease: "power2.inOut",
-          onComplete: () => {
-            gradientEl.style.background = TAB_GRADIENTS[newId];
-            gradientEl.style.webkitBackgroundClip = "text";
-            gradientEl.style.webkitTextFillColor = "transparent";
-            gsap.set(gradientOverlay, { opacity: 0 });
-          },
-        },
-        0,
-      );
-    }
-
-    if (
-      window.matchMedia("(min-width: 991px)").matches &&
-      oldStage &&
-      newStage
-    ) {
-      tl.to(oldStage, { autoAlpha: 0, duration: 0.6, ease: "power1.inOut" }, 0);
-      tl.fromTo(
-        newStage,
-        { autoAlpha: 0 },
-        { autoAlpha: 1, duration: 0.6, ease: "power1.inOut" },
-        0,
-      );
-    }
-  }
-
-  buttons.forEach((btn, index) => {
-    btn.addEventListener("click", (e) => {
-      transitionTabs(e.currentTarget.getAttribute("data-tab-btn"));
-    });
-
-    btn.addEventListener("keydown", (e) => {
-      let nextIndex;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        nextIndex = index + 1 >= buttons.length ? 0 : index + 1;
-      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        nextIndex = index - 1 < 0 ? buttons.length - 1 : index - 1;
-      }
-      if (nextIndex !== undefined) {
-        e.preventDefault();
-        buttons[nextIndex].click();
-      }
-    });
+    masterTimeline.add(phraseTimeline);
   });
-
-  let resizeTimer;
-  const resizeObserver = new ResizeObserver(() => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      if (!isAnimating) {
-        const activePanel = document.querySelector(
-          `[data-tab-panel="${activeId}"]`,
-        );
-        if (activePanel) {
-          gsap.set(tabWrapper, { height: activePanel.offsetHeight });
-        }
-      }
-    }, 150);
-  });
-
-  resizeObserver.observe(tabWrapper);
-  setup();
 }
 
-document.addEventListener("DOMContentLoaded", initTabTransitions);
+document.addEventListener("DOMContentLoaded", initTypewriter);
