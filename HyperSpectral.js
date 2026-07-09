@@ -584,3 +584,368 @@ document.addEventListener("DOMContentLoaded", () => {
   initTypewriter();
   initFaqTabs();
 });
+
+(function () {
+  const ENDPOINT = "https://formcarry.com/s/hVtd9IlWkwK";
+  const MAX_BYTES = 15 * 1024 * 1024;
+  const ALLOWED = ["csv", "txt", "tsv", "json", "jdx", "dx", "jcm", "spc"];
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  const state = { file: null };
+  let root,
+    box,
+    dropzone,
+    fileInput,
+    icon,
+    texts,
+    statusEl,
+    bottom,
+    emailInput,
+    promptInput,
+    submit;
+  let progress, fill, message, resetBtn, honeypot;
+  let dragDepth = 0;
+
+  const D = (d) => (prefersReducedMotion ? 0 : d);
+  const getExt = (name) =>
+    name && name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+  const locked = () =>
+    root.dataset.state === "sending" || root.dataset.state === "sent";
+
+  function cacheEls() {
+    root = document.querySelector('[data-form="root"]');
+    if (!root) return false;
+    box = root.parentElement;
+    dropzone = root.querySelector('[data-form="dropzone"]');
+    fileInput = root.querySelector('[data-form="file-input"]');
+    icon = root.querySelector('[data-form="upload-icon"]');
+    texts = root.querySelector('[data-form="upload-texts"]');
+    statusEl = root.querySelector('[data-form="status"]');
+    bottom = root.querySelector('[data-form="bottom"]');
+    emailInput = root.querySelector('[data-form="email"]');
+    promptInput = root.querySelector('[data-form="prompt"]');
+    submit = root.querySelector('[data-form="submit"]');
+
+    const required = {
+      dropzone,
+      fileInput,
+      icon,
+      texts,
+      bottom,
+      emailInput,
+      promptInput,
+      submit,
+    };
+    const missing = Object.keys(required).filter((k) => !required[k]);
+    if (missing.length) {
+      console.warn("[sfm-form] missing data-form hooks:", missing.join(", "));
+      return false;
+    }
+    return true;
+  }
+
+  function buildProgress() {
+    progress = document.createElement("div");
+    progress.setAttribute("data-form", "progress");
+    progress.setAttribute("role", "progressbar");
+    progress.setAttribute("aria-label", "Upload progress");
+    progress.setAttribute("aria-valuemin", "0");
+    progress.setAttribute("aria-valuemax", "100");
+    progress.setAttribute("aria-valuenow", "0");
+    fill = document.createElement("div");
+    fill.setAttribute("data-form", "progress-fill");
+    progress.appendChild(fill);
+    root.appendChild(progress);
+  }
+
+  function buildMessage() {
+    message = document.createElement("p");
+    message.setAttribute("data-form", "message");
+    message.setAttribute("aria-live", "assertive");
+    bottom.insertBefore(message, bottom.firstChild);
+  }
+
+  function buildReset() {
+    resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.setAttribute("data-form", "reset");
+    resetBtn.textContent = "Send another";
+    resetBtn.addEventListener("click", resetForm);
+    dropzone.appendChild(resetBtn);
+  }
+
+  // Bots that autofill hidden fields get dropped before any network call.
+  function buildHoneypot() {
+    honeypot = document.createElement("input");
+    honeypot.type = "text";
+    honeypot.name = "_gotcha";
+    honeypot.tabIndex = -1;
+    honeypot.autocomplete = "off";
+    honeypot.setAttribute("aria-hidden", "true");
+    honeypot.style.cssText =
+      "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;";
+    root.appendChild(honeypot);
+  }
+
+  function ensureStatus() {
+    if (statusEl) return;
+    statusEl = document.createElement("p");
+    statusEl.setAttribute("data-form", "status");
+    statusEl.setAttribute("aria-live", "polite");
+    statusEl.className = "data-form_upload-title heading-h2";
+    dropzone.appendChild(statusEl);
+  }
+
+  function setStatusText(text) {
+    statusEl.textContent = text;
+  }
+
+  function showMessage(text, tone) {
+    message.textContent = text;
+    message.setAttribute("data-tone", tone || "hint");
+  }
+
+  function clearMessage() {
+    message.textContent = "";
+    message.removeAttribute("data-tone");
+  }
+
+  function isEmailValid() {
+    return emailInput.value.trim() !== "" && emailInput.checkValidity();
+  }
+
+  function isFormComplete() {
+    return !!state.file && isEmailValid() && promptInput.value.trim() !== "";
+  }
+
+  function updateSubmitState() {
+    submit.disabled = !isFormComplete();
+  }
+
+  function validateFile(file) {
+    if (!file || file.size === 0)
+      return {
+        ok: false,
+        reason: "That file looks empty. Pick another readout.",
+      };
+    if (file.size > MAX_BYTES)
+      return {
+        ok: false,
+        reason: "Over 15MB. Export a smaller readout and retry.",
+      };
+    if (!ALLOWED.includes(getExt(file.name))) {
+      return {
+        ok: false,
+        reason:
+          "Unsupported format. Use CSV, TXT, TSV, JSON, JDX, DX, JCM or SPC.",
+      };
+    }
+    return { ok: true };
+  }
+
+  function handleFiles(list) {
+    if (!list || !list.length || locked()) return;
+    const file = list[0];
+    const check = validateFile(file);
+    if (!check.ok) {
+      showMessage(check.reason, "error");
+      return;
+    }
+    list.length > 1
+      ? showMessage("One file at a time. Using the first.", "hint")
+      : clearMessage();
+    state.file = file;
+    setState("uploaded");
+    updateSubmitState();
+  }
+
+  function setState(next) {
+    root.dataset.state = next;
+
+    if (next === "idle") {
+      setStatusText("");
+      gsap.set(statusEl, { autoAlpha: 0, display: "none" });
+      gsap.set([icon, texts], { display: "" });
+      gsap.to([icon, texts], { autoAlpha: 1, duration: D(0.3) });
+      gsap.to(bottom, {
+        autoAlpha: 1,
+        duration: D(0.3),
+        onComplete: () => (bottom.style.pointerEvents = ""),
+      });
+      fill.style.width = "0%";
+      progress.setAttribute("aria-valuenow", "0");
+      root.removeAttribute("aria-busy");
+    }
+
+    if (next === "uploaded") {
+      gsap.to([icon, texts], {
+        autoAlpha: 0,
+        duration: D(0.25),
+        onComplete: () => gsap.set([icon, texts], { display: "none" }),
+      });
+      setStatusText("Uploaded");
+      gsap.set(statusEl, { display: "flex" });
+      gsap.fromTo(
+        statusEl,
+        { autoAlpha: 0 },
+        { autoAlpha: 1, duration: D(0.3), delay: D(0.08) },
+      );
+      gsap.to(bottom, {
+        autoAlpha: 1,
+        duration: D(0.3),
+        onComplete: () => (bottom.style.pointerEvents = ""),
+      });
+      root.removeAttribute("aria-busy");
+    }
+
+    if (next === "sending") {
+      root.setAttribute("aria-busy", "true");
+    }
+
+    if (next === "sent") {
+      setStatusText("Sent");
+      root.removeAttribute("aria-busy");
+      bottom.style.pointerEvents = "none";
+      gsap.to(bottom, { autoAlpha: 0.35, duration: D(0.4) });
+    }
+  }
+
+  function submitForm(payload, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", ENDPOINT);
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable)
+          onProgress(Math.round((e.loaded / e.total) * 100));
+      });
+      xhr.addEventListener("load", () => {
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error("status " + xhr.status));
+      });
+      xhr.addEventListener("error", () => reject(new Error("network")));
+      xhr.addEventListener("abort", () => reject(new Error("aborted")));
+      xhr.send(payload);
+    });
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!isFormComplete() || root.dataset.state === "sending") return;
+    if (honeypot && honeypot.value) return;
+
+    clearMessage();
+    setState("sending");
+    submit.disabled = true;
+
+    const payload = new FormData();
+    payload.append("email", emailInput.value.trim());
+    payload.append("prompt", promptInput.value.trim());
+    payload.append("spectral_readout", state.file, state.file.name);
+    payload.append("_gotcha", honeypot ? honeypot.value : "");
+
+    submitForm(payload, (pct) => {
+      fill.style.width = pct + "%";
+      progress.setAttribute("aria-valuenow", String(pct));
+    })
+      .then(() => {
+        fill.style.width = "100%";
+        progress.setAttribute("aria-valuenow", "100");
+        emailInput.disabled = true;
+        promptInput.disabled = true;
+        setState("sent");
+      })
+      .catch(() => {
+        showMessage(
+          "Send failed. Check your connection and try again.",
+          "error",
+        );
+        setState("uploaded");
+        updateSubmitState();
+      });
+  }
+
+  function resetForm() {
+    state.file = null;
+    fileInput.value = "";
+    promptInput.value = "";
+    emailInput.disabled = false;
+    promptInput.disabled = false;
+    clearMessage();
+    setState("idle");
+    updateSubmitState();
+  }
+
+  function onDragEnter(e) {
+    e.preventDefault();
+    if (locked()) return;
+    dragDepth++;
+    box.dataset.drag = "active";
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+  }
+
+  function onDragLeave(e) {
+    e.preventDefault();
+    dragDepth--;
+    if (dragDepth <= 0) {
+      dragDepth = 0;
+      delete box.dataset.drag;
+    }
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    dragDepth = 0;
+    delete box.dataset.drag;
+    if (locked()) return;
+    handleFiles(e.dataTransfer.files);
+  }
+
+  function preventWindowDrop(e) {
+    e.preventDefault();
+  }
+
+  function initBaseline() {
+    root.dataset.state = "idle";
+    box.setAttribute("data-form", "box");
+    gsap.set(statusEl, { autoAlpha: 0, display: "none" });
+    gsap.set([icon, texts], { autoAlpha: 1 });
+    fill.style.width = "0%";
+    submit.disabled = true;
+  }
+
+  function bindEvents() {
+    fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+    emailInput.addEventListener("input", updateSubmitState);
+    promptInput.addEventListener("input", updateSubmitState);
+    root.addEventListener("submit", handleSubmit);
+
+    root.addEventListener("dragenter", onDragEnter);
+    root.addEventListener("dragover", onDragOver);
+    root.addEventListener("dragleave", onDragLeave);
+    root.addEventListener("drop", onDrop);
+    window.addEventListener("dragover", preventWindowDrop);
+    window.addEventListener("drop", preventWindowDrop);
+  }
+
+  function initDataForm() {
+    if (!cacheEls()) return;
+    if (root.dataset.sfmReady) return;
+    root.dataset.sfmReady = "true";
+    ensureStatus();
+    buildProgress();
+    buildMessage();
+    buildReset();
+    buildHoneypot();
+    initBaseline();
+    bindEvents();
+  }
+
+  document.addEventListener("DOMContentLoaded", initDataForm);
+})();
