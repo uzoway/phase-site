@@ -125,6 +125,17 @@ function initTabTransitions() {
   const panels = document.querySelectorAll("[data-tab-panel]");
   const stages = document.querySelectorAll("[data-stage]");
 
+  const TAB_GRADIENTS = {
+    "clinical-diagnostics":
+      "linear-gradient(97.85deg, #e33e5c -5.84%, #e33ec0 39.15%, #8164ec 100.08%)",
+    biomanufacturing: "linear-gradient(270deg, #676CFB 39.15%, #BC41E7 100%)",
+    "food-supply-chain":
+      "linear-gradient(270deg, #FAFE80 39.15%, #23CC40 110.89%)",
+    "defence-security": "linear-gradient(270deg, #6EFF9A 39.15%, #87C6FF 100%)",
+    "quality-control": "linear-gradient(270deg, #B63600 39.15%, #DAC735 100%)",
+    "your-domain": "linear-gradient(270deg, #020001 39.15%, #020001 100%)",
+  };
+
   if (!tabWrapper || buttons.length === 0 || panels.length === 0) {
     console.warn("Tab Component: Missing required data attributes.");
     return;
@@ -132,7 +143,8 @@ function initTabTransitions() {
 
   let activeId = buttons[0].getAttribute("data-tab-btn");
   let isAnimating = false;
-  const mm = gsap.matchMedia();
+  let gradientEl = null;
+  let gradientOverlay = null;
 
   function setupAccessibility() {
     buttons.forEach((btn) => {
@@ -179,6 +191,30 @@ function initTabTransitions() {
     stages.forEach((stage, index) => {
       gsap.set(stage, { autoAlpha: index === 0 ? 1 : 0 });
     });
+
+    gradientEl = document.querySelector('[data-tab="gradient-text"]');
+
+    if (gradientEl) {
+      const wrapper = document.createElement("span");
+      wrapper.style.position = "relative";
+      wrapper.style.display = "inline-block";
+      gradientEl.parentNode.insertBefore(wrapper, gradientEl);
+      wrapper.appendChild(gradientEl);
+
+      gradientOverlay = gradientEl.cloneNode(true);
+      gradientOverlay.removeAttribute("data-tab");
+      gradientOverlay.setAttribute("aria-hidden", "true");
+      Object.assign(gradientOverlay.style, {
+        position: "absolute",
+        top: "0",
+        left: "0",
+        width: "100%",
+        height: "100%",
+        opacity: "0",
+        pointerEvents: "none",
+      });
+      wrapper.appendChild(gradientOverlay);
+    }
   }
 
   function transitionTabs(newId) {
@@ -289,6 +325,29 @@ function initTabTransitions() {
           ease: "power2.out",
         },
         0.15,
+      );
+    }
+
+    if (gradientEl && gradientOverlay) {
+      gradientOverlay.style.background = TAB_GRADIENTS[newId];
+      gradientOverlay.style.webkitBackgroundClip = "text";
+      gradientOverlay.style.webkitTextFillColor = "transparent";
+
+      tl.fromTo(
+        gradientOverlay,
+        { opacity: 0 },
+        {
+          opacity: 1,
+          duration: 0.5,
+          ease: "power2.inOut",
+          onComplete: () => {
+            gradientEl.style.background = TAB_GRADIENTS[newId];
+            gradientEl.style.webkitBackgroundClip = "text";
+            gradientEl.style.webkitTextFillColor = "transparent";
+            gsap.set(gradientOverlay, { opacity: 0 });
+          },
+        },
+        0,
       );
     }
 
