@@ -1162,404 +1162,404 @@
 //   initProcessTabs();
 // });
 
-function initPhaseSection() {
-  const section = document.querySelector('[data-phase="section"]');
-  if (!section) return;
+// function initPhaseSection() {
+//   const section = document.querySelector('[data-phase="section"]');
+//   if (!section) return;
 
-  const contentWrap = section.querySelector('[data-phase="content"]');
-  const cols = section.querySelectorAll('[data-phase="col"]');
-  const images = section.querySelectorAll('[data-phase="image"]');
+//   const contentWrap = section.querySelector('[data-phase="content"]');
+//   const cols = section.querySelectorAll('[data-phase="col"]');
+//   const images = section.querySelectorAll('[data-phase="image"]');
 
-  if (!contentWrap || cols.length < 2 || images.length !== cols.length) return;
+//   if (!contentWrap || cols.length < 2 || images.length !== cols.length) return;
 
-  gsap.registerPlugin(ScrollTrigger);
+//   gsap.registerPlugin(ScrollTrigger);
 
-  const mm = gsap.matchMedia();
+//   const mm = gsap.matchMedia();
 
-  mm.add(
-    {
-      isDesktop: "(min-width: 767px)",
-      reduceMotion: "(prefers-reduced-motion: reduce)",
-    },
-    (context) => {
-      const { isDesktop, reduceMotion } = context.conditions;
-      if (!isDesktop || reduceMotion) return;
+//   mm.add(
+//     {
+//       isDesktop: "(min-width: 767px)",
+//       reduceMotion: "(prefers-reduced-motion: reduce)",
+//     },
+//     (context) => {
+//       const { isDesktop, reduceMotion } = context.conditions;
+//       if (!isDesktop || reduceMotion) return;
 
-      gsap.set(contentWrap, { position: "relative", overflow: "hidden" });
-      gsap.set(cols, {
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        yPercent: (i) => (i === 0 ? 0 : 100),
-      });
-      gsap.set(images, { autoAlpha: (i) => (i === 0 ? 1 : 0) });
+//       gsap.set(contentWrap, { position: "relative", overflow: "hidden" });
+//       gsap.set(cols, {
+//         position: "absolute",
+//         top: 0,
+//         left: 0,
+//         width: "100%",
+//         height: "100%",
+//         yPercent: (i) => (i === 0 ? 0 : 100),
+//       });
+//       gsap.set(images, { autoAlpha: (i) => (i === 0 ? 1 : 0) });
 
-      cols.forEach((col, i) => {
-        if (i === 0) col.removeAttribute("inert");
-        else col.setAttribute("inert", "");
-      });
+//       cols.forEach((col, i) => {
+//         if (i === 0) col.removeAttribute("inert");
+//         else col.setAttribute("inert", "");
+//       });
 
-      const steps = cols.length - 1;
-      let lastActive = 0;
+//       const steps = cols.length - 1;
+//       let lastActive = 0;
 
-      const tl = gsap.timeline({
-        defaults: { ease: "power2.inOut", duration: 1 },
-        scrollTrigger: {
-          trigger: section,
-          start: "top top",
-          end: () => `+=${window.innerHeight * steps}`,
-          pin: true,
-          pinType: "transform",
-          scrub: 1,
-          invalidateOnRefresh: true,
-          anticipatePin: 1,
-          onUpdate: (self) => {
-            const active = Math.round(self.progress * steps);
-            if (active === lastActive) return;
-            cols.forEach((col, i) => {
-              if (i === active) col.removeAttribute("inert");
-              else col.setAttribute("inert", "");
-            });
-            lastActive = active;
-          },
-        },
-      });
+//       const tl = gsap.timeline({
+//         defaults: { ease: "power2.inOut", duration: 1 },
+//         scrollTrigger: {
+//           trigger: section,
+//           start: "top top",
+//           end: () => `+=${window.innerHeight * steps}`,
+//           pin: true,
+//           pinType: "transform",
+//           scrub: 1,
+//           invalidateOnRefresh: true,
+//           anticipatePin: 1,
+//           onUpdate: (self) => {
+//             const active = Math.round(self.progress * steps);
+//             if (active === lastActive) return;
+//             cols.forEach((col, i) => {
+//               if (i === active) col.removeAttribute("inert");
+//               else col.setAttribute("inert", "");
+//             });
+//             lastActive = active;
+//           },
+//         },
+//       });
 
-      for (let i = 0; i < steps; i++) {
-        const label = `step-${i}`;
-        tl.addLabel(label)
-          .to(cols[i], { yPercent: -100 }, label)
-          .to(cols[i + 1], { yPercent: 0 }, label)
-          .to(images[i], { autoAlpha: 0 }, label)
-          .to(images[i + 1], { autoAlpha: 1 }, label);
-      }
+//       for (let i = 0; i < steps; i++) {
+//         const label = `step-${i}`;
+//         tl.addLabel(label)
+//           .to(cols[i], { yPercent: -100 }, label)
+//           .to(cols[i + 1], { yPercent: 0 }, label)
+//           .to(images[i], { autoAlpha: 0 }, label)
+//           .to(images[i + 1], { autoAlpha: 1 }, label);
+//       }
 
-      return () => {
-        cols.forEach((col) => col.removeAttribute("inert"));
-        lastActive = 0;
-      };
-    },
-  );
-}
+//       return () => {
+//         cols.forEach((col) => col.removeAttribute("inert"));
+//         lastActive = 0;
+//       };
+//     },
+//   );
+// }
 
-function initHeroRotation() {
-  const container = document.querySelector('[data-hero="container"]');
-  if (!container || container.dataset.heroInit === "true") return;
-  container.dataset.heroInit = "true";
+// function initHeroRotation() {
+//   const container = document.querySelector('[data-hero="container"]');
+//   if (!container || container.dataset.heroInit === "true") return;
+//   container.dataset.heroInit = "true";
 
-  const stages = Array.from(document.querySelectorAll("[data-hero-stage]"));
-  const cards = Array.from(document.querySelectorAll("[data-hero-card]"));
-  const gradientSource = document.querySelector(".text-hero-gradient");
+//   const stages = Array.from(document.querySelectorAll("[data-hero-stage]"));
+//   const cards = Array.from(document.querySelectorAll("[data-hero-card]"));
+//   const gradientSource = document.querySelector(".text-hero-gradient");
 
-  if (stages.length !== 3 || cards.length !== 4) return;
+//   if (stages.length !== 3 || cards.length !== 4) return;
 
-  const REM = parseFloat(getComputedStyle(document.documentElement).fontSize);
-  const STAGE_DURATION = 4000;
-  const TRANSITION = 0.9;
-  const PAD_FEATURED = "0.63rem";
-  const PAD_TILE = "0.25rem";
+//   const REM = parseFloat(getComputedStyle(document.documentElement).fontSize);
+//   const STAGE_DURATION = 4000;
+//   const TRANSITION = 0.9;
+//   const PAD_FEATURED = "0.63rem";
+//   const PAD_TILE = "0.25rem";
 
-  const layouts = {
-    1: {
-      featured: 1,
-      tiles: { 2: [0.35, 0.3], 3: [0.08, 0.08], 4: [0.5, 0.08] },
-    },
-    2: {
-      featured: 2,
-      tiles: { 1: [0.45, 0.55], 3: [0.25, 0.08], 4: [0.55, 0.08] },
-    },
-    3: {
-      featured: 3,
-      tiles: { 1: [0.05, 0.55], 2: [0.15, 0.08], 4: [0.4, 0.15] },
-    },
-  };
+//   const layouts = {
+//     1: {
+//       featured: 1,
+//       tiles: { 2: [0.35, 0.3], 3: [0.08, 0.08], 4: [0.5, 0.08] },
+//     },
+//     2: {
+//       featured: 2,
+//       tiles: { 1: [0.45, 0.55], 3: [0.25, 0.08], 4: [0.55, 0.08] },
+//     },
+//     3: {
+//       featured: 3,
+//       tiles: { 1: [0.05, 0.55], 2: [0.15, 0.08], 4: [0.4, 0.15] },
+//     },
+//   };
 
-  const gradients = setupGradients(gradientSource);
-  const state = { current: 1, timer: null, tl: null, paused: false };
-  const reduceQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const mobileQuery = window.matchMedia("(max-width: 766px)");
+//   const gradients = setupGradients(gradientSource);
+//   const state = { current: 1, timer: null, tl: null, paused: false };
+//   const reduceQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+//   const mobileQuery = window.matchMedia("(max-width: 766px)");
 
-  function setupGradients(source) {
-    if (!source) return null;
-    const text = source.textContent.trim();
-    source.setAttribute("data-hero-gradient", "wrap");
-    source.textContent = "";
-    const spans = [1, 2, 3].map((n) => {
-      const s = document.createElement("span");
-      s.setAttribute("data-hero-gradient", String(n));
-      s.textContent = text;
-      if (n > 1) s.setAttribute("aria-hidden", "true");
-      source.appendChild(s);
-      return s;
-    });
-    return spans;
-  }
+//   function setupGradients(source) {
+//     if (!source) return null;
+//     const text = source.textContent.trim();
+//     source.setAttribute("data-hero-gradient", "wrap");
+//     source.textContent = "";
+//     const spans = [1, 2, 3].map((n) => {
+//       const s = document.createElement("span");
+//       s.setAttribute("data-hero-gradient", String(n));
+//       s.textContent = text;
+//       if (n > 1) s.setAttribute("aria-hidden", "true");
+//       source.appendChild(s);
+//       return s;
+//     });
+//     return spans;
+//   }
 
-  function tileSize() {
-    return mobileQuery.matches ? { w: 59, h: 67 } : { w: 80, h: 91 };
-  }
+//   function tileSize() {
+//     return mobileQuery.matches ? { w: 59, h: 67 } : { w: 80, h: 91 };
+//   }
 
-  function featuredSize() {
-    return mobileQuery.matches
-      ? { w: 127, h: 114 }
-      : { w: 15.44 * REM, h: 13.19 * REM };
-  }
+//   function featuredSize() {
+//     return mobileQuery.matches
+//       ? { w: 127, h: 114 }
+//       : { w: 15.44 * REM, h: 13.19 * REM };
+//   }
 
-  function tilePos(topPct, rightPct) {
-    const r = container.getBoundingClientRect();
-    const s = tileSize();
-    return {
-      top: r.height * topPct,
-      left: r.width - s.w - r.width * rightPct,
-      width: s.w,
-      height: s.h,
-    };
-  }
+//   function tilePos(topPct, rightPct) {
+//     const r = container.getBoundingClientRect();
+//     const s = tileSize();
+//     return {
+//       top: r.height * topPct,
+//       left: r.width - s.w - r.width * rightPct,
+//       width: s.w,
+//       height: s.h,
+//     };
+//   }
 
-  function featuredPos() {
-    const r = container.getBoundingClientRect();
-    const f = featuredSize();
-    const offset = mobileQuery.matches ? 12 : 0.81 * REM;
-    const inset = mobileQuery.matches ? 12 : 1.06 * REM;
-    return {
-      top: r.height - f.h - offset,
-      left: inset,
-      width: f.w,
-      height: f.h,
-    };
-  }
+//   function featuredPos() {
+//     const r = container.getBoundingClientRect();
+//     const f = featuredSize();
+//     const offset = mobileQuery.matches ? 12 : 0.81 * REM;
+//     const inset = mobileQuery.matches ? 12 : 1.06 * REM;
+//     return {
+//       top: r.height - f.h - offset,
+//       left: inset,
+//       width: f.w,
+//       height: f.h,
+//     };
+//   }
 
-  function positionFor(cardNum, stageNum) {
-    const layout = layouts[stageNum];
-    return cardNum === layout.featured
-      ? featuredPos()
-      : tilePos(...layout.tiles[cardNum]);
-  }
+//   function positionFor(cardNum, stageNum) {
+//     const layout = layouts[stageNum];
+//     return cardNum === layout.featured
+//       ? featuredPos()
+//       : tilePos(...layout.tiles[cardNum]);
+//   }
 
-  function applyInitialState() {
-    stages.forEach((s, i) => {
-      if (i === 0) {
-        s.setAttribute("data-hero-stage-state", "active");
-        s.removeAttribute("aria-hidden");
-      } else {
-        s.removeAttribute("data-hero-stage-state");
-        s.setAttribute("aria-hidden", "true");
-      }
-    });
-    cards.forEach((card) => {
-      const num = +card.dataset.heroCard;
-      if (num === layouts[1].featured)
-        card.setAttribute("data-hero-card-state", "featured");
-      else card.removeAttribute("data-hero-card-state");
-    });
-  }
+//   function applyInitialState() {
+//     stages.forEach((s, i) => {
+//       if (i === 0) {
+//         s.setAttribute("data-hero-stage-state", "active");
+//         s.removeAttribute("aria-hidden");
+//       } else {
+//         s.removeAttribute("data-hero-stage-state");
+//         s.setAttribute("aria-hidden", "true");
+//       }
+//     });
+//     cards.forEach((card) => {
+//       const num = +card.dataset.heroCard;
+//       if (num === layouts[1].featured)
+//         card.setAttribute("data-hero-card-state", "featured");
+//       else card.removeAttribute("data-hero-card-state");
+//     });
+//   }
 
-  function normalize() {
-    const featuredNum = layouts[state.current].featured;
-    cards.forEach((card) => {
-      const num = +card.dataset.heroCard;
-      const pos = positionFor(num, state.current);
-      gsap.set(card, {
-        top: pos.top,
-        left: pos.left,
-        right: "auto",
-        bottom: "auto",
-        width: pos.width,
-        height: pos.height,
-        paddingBottom: num === featuredNum ? PAD_FEATURED : PAD_TILE,
-      });
-    });
-  }
+//   function normalize() {
+//     const featuredNum = layouts[state.current].featured;
+//     cards.forEach((card) => {
+//       const num = +card.dataset.heroCard;
+//       const pos = positionFor(num, state.current);
+//       gsap.set(card, {
+//         top: pos.top,
+//         left: pos.left,
+//         right: "auto",
+//         bottom: "auto",
+//         width: pos.width,
+//         height: pos.height,
+//         paddingBottom: num === featuredNum ? PAD_FEATURED : PAD_TILE,
+//       });
+//     });
+//   }
 
-  function rotate(nextNum) {
-    if (state.current === nextNum || state.tl) return;
+//   function rotate(nextNum) {
+//     if (state.current === nextNum || state.tl) return;
 
-    const layout = layouts[nextNum];
-    const currentStageEl = stages.find(
-      (s) => +s.dataset.heroStage === state.current,
-    );
-    const nextStageEl = stages.find((s) => +s.dataset.heroStage === nextNum);
+//     const layout = layouts[nextNum];
+//     const currentStageEl = stages.find(
+//       (s) => +s.dataset.heroStage === state.current,
+//     );
+//     const nextStageEl = stages.find((s) => +s.dataset.heroStage === nextNum);
 
-    nextStageEl.setAttribute("data-hero-stage-state", "active");
-    nextStageEl.removeAttribute("aria-hidden");
+//     nextStageEl.setAttribute("data-hero-stage-state", "active");
+//     nextStageEl.removeAttribute("aria-hidden");
 
-    const tl = gsap.timeline({
-      onComplete: () => {
-        currentStageEl.removeAttribute("data-hero-stage-state");
-        currentStageEl.setAttribute("aria-hidden", "true");
-        cards.forEach((card) => {
-          const num = +card.dataset.heroCard;
-          if (num === layout.featured)
-            card.setAttribute("data-hero-card-state", "featured");
-          else card.removeAttribute("data-hero-card-state");
-        });
-        state.current = nextNum;
-        state.tl = null;
-        schedule();
-      },
-    });
+//     const tl = gsap.timeline({
+//       onComplete: () => {
+//         currentStageEl.removeAttribute("data-hero-stage-state");
+//         currentStageEl.setAttribute("aria-hidden", "true");
+//         cards.forEach((card) => {
+//           const num = +card.dataset.heroCard;
+//           if (num === layout.featured)
+//             card.setAttribute("data-hero-card-state", "featured");
+//           else card.removeAttribute("data-hero-card-state");
+//         });
+//         state.current = nextNum;
+//         state.tl = null;
+//         schedule();
+//       },
+//     });
 
-    tl.to(
-      currentStageEl,
-      { autoAlpha: 0, duration: 0.6, ease: "power2.inOut" },
-      0,
-    ).to(nextStageEl, { autoAlpha: 1, duration: 0.6, ease: "power2.inOut" }, 0);
+//     tl.to(
+//       currentStageEl,
+//       { autoAlpha: 0, duration: 0.6, ease: "power2.inOut" },
+//       0,
+//     ).to(nextStageEl, { autoAlpha: 1, duration: 0.6, ease: "power2.inOut" }, 0);
 
-    if (gradients) {
-      gradients.forEach((span, i) => {
-        const isNext = i + 1 === nextNum;
-        tl.to(
-          span,
-          { autoAlpha: isNext ? 1 : 0, duration: 0.6, ease: "power2.inOut" },
-          0,
-        );
-      });
-    }
+//     if (gradients) {
+//       gradients.forEach((span, i) => {
+//         const isNext = i + 1 === nextNum;
+//         tl.to(
+//           span,
+//           { autoAlpha: isNext ? 1 : 0, duration: 0.6, ease: "power2.inOut" },
+//           0,
+//         );
+//       });
+//     }
 
-    cards.forEach((card) => {
-      const num = +card.dataset.heroCard;
-      const inner = card.querySelector("[data-hero-card-inner]");
-      const tag = card.querySelector("[data-hero-card-tag]");
-      const willFeature = num === layout.featured;
-      const wasFeatured = num === layouts[state.current].featured;
-      const pos = positionFor(num, nextNum);
+//     cards.forEach((card) => {
+//       const num = +card.dataset.heroCard;
+//       const inner = card.querySelector("[data-hero-card-inner]");
+//       const tag = card.querySelector("[data-hero-card-tag]");
+//       const willFeature = num === layout.featured;
+//       const wasFeatured = num === layouts[state.current].featured;
+//       const pos = positionFor(num, nextNum);
 
-      tl.to(
-        card,
-        {
-          top: pos.top,
-          left: pos.left,
-          width: pos.width,
-          height: pos.height,
-          paddingBottom: willFeature ? PAD_FEATURED : PAD_TILE,
-          duration: TRANSITION,
-          ease: "power3.inOut",
-        },
-        0,
-      );
+//       tl.to(
+//         card,
+//         {
+//           top: pos.top,
+//           left: pos.left,
+//           width: pos.width,
+//           height: pos.height,
+//           paddingBottom: willFeature ? PAD_FEATURED : PAD_TILE,
+//           duration: TRANSITION,
+//           ease: "power3.inOut",
+//         },
+//         0,
+//       );
 
-      if (willFeature && !wasFeatured) {
-        tl.to(tag, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, 0).to(
-          inner,
-          { autoAlpha: 1, duration: 0.4, ease: "power2.out" },
-          TRANSITION * 0.5,
-        );
-      } else if (!willFeature && wasFeatured) {
-        tl.to(inner, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, 0).to(
-          tag,
-          { autoAlpha: 1, duration: 0.4, ease: "power2.out" },
-          TRANSITION * 0.4,
-        );
-      }
-    });
+//       if (willFeature && !wasFeatured) {
+//         tl.to(tag, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, 0).to(
+//           inner,
+//           { autoAlpha: 1, duration: 0.4, ease: "power2.out" },
+//           TRANSITION * 0.5,
+//         );
+//       } else if (!willFeature && wasFeatured) {
+//         tl.to(inner, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, 0).to(
+//           tag,
+//           { autoAlpha: 1, duration: 0.4, ease: "power2.out" },
+//           TRANSITION * 0.4,
+//         );
+//       }
+//     });
 
-    state.tl = tl;
-  }
+//     state.tl = tl;
+//   }
 
-  function nextNum() {
-    return state.current === 3 ? 1 : state.current + 1;
-  }
+//   function nextNum() {
+//     return state.current === 3 ? 1 : state.current + 1;
+//   }
 
-  function schedule() {
-    clearTimeout(state.timer);
-    if (state.paused || reduceQuery.matches) return;
-    state.timer = setTimeout(() => rotate(nextNum()), STAGE_DURATION);
-  }
+//   function schedule() {
+//     clearTimeout(state.timer);
+//     if (state.paused || reduceQuery.matches) return;
+//     state.timer = setTimeout(() => rotate(nextNum()), STAGE_DURATION);
+//   }
 
-  function pause() {
-    if (state.paused) return;
-    state.paused = true;
-    clearTimeout(state.timer);
-    if (state.tl) state.tl.pause();
-  }
+//   function pause() {
+//     if (state.paused) return;
+//     state.paused = true;
+//     clearTimeout(state.timer);
+//     if (state.tl) state.tl.pause();
+//   }
 
-  function resume() {
-    if (!state.paused) return;
-    state.paused = false;
-    if (state.tl) state.tl.play();
-    else schedule();
-  }
+//   function resume() {
+//     if (!state.paused) return;
+//     state.paused = false;
+//     if (state.tl) state.tl.play();
+//     else schedule();
+//   }
 
-  function handleResize() {
-    if (state.tl) state.tl.progress(1);
-    normalize();
-  }
+//   function handleResize() {
+//     if (state.tl) state.tl.progress(1);
+//     normalize();
+//   }
 
-  reduceQuery.addEventListener("change", (e) => {
-    if (e.matches) pause();
-    else resume();
-  });
+//   reduceQuery.addEventListener("change", (e) => {
+//     if (e.matches) pause();
+//     else resume();
+//   });
 
-  mobileQuery.addEventListener("change", handleResize);
+//   mobileQuery.addEventListener("change", handleResize);
 
-  container.addEventListener("mouseenter", pause);
-  container.addEventListener("mouseleave", resume);
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) pause();
-    else resume();
-  });
+//   container.addEventListener("mouseenter", pause);
+//   container.addEventListener("mouseleave", resume);
+//   document.addEventListener("visibilitychange", () => {
+//     if (document.hidden) pause();
+//     else resume();
+//   });
 
-  let resizeTimer;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(handleResize, 150);
-  });
+//   let resizeTimer;
+//   window.addEventListener("resize", () => {
+//     clearTimeout(resizeTimer);
+//     resizeTimer = setTimeout(handleResize, 150);
+//   });
 
-  applyInitialState();
-  normalize();
-  if (!reduceQuery.matches) schedule();
-}
+//   applyInitialState();
+//   normalize();
+//   if (!reduceQuery.matches) schedule();
+// }
 
-function initVideoPlayer() {
-  const btn = document.querySelector("[data-video-btn]");
-  const thumb = document.querySelector("[data-video-thumb]");
-  const video = document.querySelector("[data-video-element]");
+// function initVideoPlayer() {
+//   const btn = document.querySelector("[data-video-btn]");
+//   const thumb = document.querySelector("[data-video-thumb]");
+//   const video = document.querySelector("[data-video-element]");
 
-  if (!btn || !thumb || !video) return;
+//   if (!btn || !thumb || !video) return;
 
-  function handlePlay() {
-    btn.setAttribute("aria-disabled", "true");
+//   function handlePlay() {
+//     btn.setAttribute("aria-disabled", "true");
 
-    const playPromise = video.play();
+//     const playPromise = video.play();
 
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => {
-          const prefersReducedMotion = window.matchMedia(
-            "(prefers-reduced-motion: reduce)",
-          ).matches;
-          const animDuration = prefersReducedMotion ? 0 : 0.4;
+//     if (playPromise !== undefined) {
+//       playPromise
+//         .then(() => {
+//           const prefersReducedMotion = window.matchMedia(
+//             "(prefers-reduced-motion: reduce)",
+//           ).matches;
+//           const animDuration = prefersReducedMotion ? 0 : 0.4;
 
-          gsap.to([btn, thumb], {
-            opacity: 0,
-            pointerEvents: "none",
-            visibility: "hidden",
-            duration: animDuration,
-            ease: "power2.inOut",
-          });
+//           gsap.to([btn, thumb], {
+//             opacity: 0,
+//             pointerEvents: "none",
+//             visibility: "hidden",
+//             duration: animDuration,
+//             ease: "power2.inOut",
+//           });
 
-          gsap.to(video, {
-            opacity: 1,
-            pointerEvents: "auto",
-            visibility: "visible",
-            duration: animDuration,
-            ease: "power2.inOut",
-            onComplete: () => video.focus(),
-          });
-        })
-        .catch((error) => {
-          btn.removeAttribute("aria-disabled");
-        });
-    }
-  }
+//           gsap.to(video, {
+//             opacity: 1,
+//             pointerEvents: "auto",
+//             visibility: "visible",
+//             duration: animDuration,
+//             ease: "power2.inOut",
+//             onComplete: () => video.focus(),
+//           });
+//         })
+//         .catch((error) => {
+//           btn.removeAttribute("aria-disabled");
+//         });
+//     }
+//   }
 
-  btn.addEventListener("click", handlePlay);
-}
+//   btn.addEventListener("click", handlePlay);
+// }
 
-window.addEventListener("DOMContentLoaded", () => {
-  initHeroRotation();
-  initVideoPlayer();
-  initPhaseSection();
-});
+// window.addEventListener("DOMContentLoaded", () => {
+//   initHeroRotation();
+//   initVideoPlayer();
+//   initPhaseSection();
+// });
