@@ -406,546 +406,1160 @@
 
 // document.addEventListener("DOMContentLoaded", initTabTransitions);
 
-function initTypewriter() {
-  const config = {
-    typeSpeedPerChar: 0.05,
-    deleteSpeedPerChar: 0.03,
-    holdDuration: 3.5,
-  };
+// /* -- Typewriter Effect -- */
+// function initTypewriter() {
+//   const config = {
+//     typeSpeedPerChar: 0.05,
+//     deleteSpeedPerChar: 0.03,
+//     holdDuration: 3.5,
+//   };
 
-  const wrapper = document.querySelector("[data-typewriter-wrapper]");
-  if (!wrapper) return;
+//   const wrapper = document.querySelector("[data-typewriter-wrapper]");
+//   if (!wrapper) return;
 
-  const target = wrapper.querySelector("[data-typewriter-target]");
+//   const target = wrapper.querySelector("[data-typewriter-target]");
 
-  wrapper.setAttribute("aria-live", "polite");
-  wrapper.setAttribute("aria-atomic", "true");
+//   wrapper.setAttribute("aria-live", "polite");
+//   wrapper.setAttribute("aria-atomic", "true");
 
-  const prefersReducedMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
+//   const prefersReducedMotion = window.matchMedia(
+//     "(prefers-reduced-motion: reduce)",
+//   ).matches;
 
-  const phrases = [
-    wrapper.getAttribute("data-typewriter-one"),
-    wrapper.getAttribute("data-typewriter-two"),
-    wrapper.getAttribute("data-typewriter-three"),
-  ].filter(Boolean);
+//   const phrases = [
+//     wrapper.getAttribute("data-typewriter-one"),
+//     wrapper.getAttribute("data-typewriter-two"),
+//     wrapper.getAttribute("data-typewriter-three"),
+//   ].filter(Boolean);
 
-  if (phrases.length === 0) return;
+//   if (phrases.length === 0) return;
 
-  if (prefersReducedMotion) {
-    target.textContent = phrases[0];
-    return;
-  }
+//   if (prefersReducedMotion) {
+//     target.textContent = phrases[0];
+//     return;
+//   }
 
-  target.textContent = "\u00A0";
+//   target.textContent = "\u00A0";
 
-  const masterTimeline = gsap.timeline({ repeat: -1 });
+//   const masterTimeline = gsap.timeline({ repeat: -1 });
 
-  phrases.forEach((phrase) => {
-    const textProxy = { length: 0 };
-    const phraseTimeline = gsap.timeline();
+//   phrases.forEach((phrase) => {
+//     const textProxy = { length: 0 };
+//     const phraseTimeline = gsap.timeline();
 
-    phraseTimeline
-      .to(textProxy, {
-        length: phrase.length,
-        duration: phrase.length * config.typeSpeedPerChar,
-        ease: "none",
-        onUpdate: () => {
-          target.textContent =
-            phrase.substring(0, Math.round(textProxy.length)) || "\u00A0";
-        },
-      })
-      .to({}, { duration: config.holdDuration })
-      .to(textProxy, {
-        length: 0,
-        duration: phrase.length * config.deleteSpeedPerChar,
-        ease: "none",
-        onUpdate: () => {
-          target.textContent =
-            phrase.substring(0, Math.round(textProxy.length)) || "\u00A0";
+//     phraseTimeline
+//       .to(textProxy, {
+//         length: phrase.length,
+//         duration: phrase.length * config.typeSpeedPerChar,
+//         ease: "none",
+//         onUpdate: () => {
+//           target.textContent =
+//             phrase.substring(0, Math.round(textProxy.length)) || "\u00A0";
+//         },
+//       })
+//       .to({}, { duration: config.holdDuration })
+//       .to(textProxy, {
+//         length: 0,
+//         duration: phrase.length * config.deleteSpeedPerChar,
+//         ease: "none",
+//         onUpdate: () => {
+//           target.textContent =
+//             phrase.substring(0, Math.round(textProxy.length)) || "\u00A0";
+//         },
+//       });
+
+//     masterTimeline.add(phraseTimeline);
+//   });
+// }
+
+// /* -- FAQs Tab Interaction -- */
+// function initFaqTabs() {
+//   const config = {
+//     baseOpacity: 0.5,
+//     charStagger: 0.006,
+//     charDuration: 0.05,
+//     transitionDuration: 0.4,
+//   };
+
+//   const wrapper = document.querySelector("[data-faq-wrapper]");
+//   if (!wrapper) return;
+
+//   const buttons = wrapper.querySelectorAll("[data-faq-trigger]");
+//   const targets = wrapper.querySelectorAll("[data-faq-target]");
+//   const prefersReducedMotion = window.matchMedia(
+//     "(prefers-reduced-motion: reduce)",
+//   ).matches;
+
+//   let activeIndex = "1";
+//   let activeTimeline = null;
+//   const splitInstances = new Map();
+
+//   wrapper.setAttribute("aria-live", "polite");
+
+//   if (!prefersReducedMotion) {
+//     targets.forEach((target) => {
+//       const index = target.getAttribute("data-faq-target");
+//       const split = new SplitText(target, { type: "words, chars" });
+//       splitInstances.set(index, split);
+
+//       if (index !== activeIndex) {
+//         gsap.set(split.chars, { opacity: config.baseOpacity });
+//       }
+//     });
+//   }
+
+//   function switchTab(newIndex) {
+//     if (newIndex === activeIndex || !newIndex) return;
+
+//     const oldTarget = wrapper.querySelector(
+//       `[data-faq-target="${activeIndex}"]`,
+//     );
+//     const newTarget = wrapper.querySelector(`[data-faq-target="${newIndex}"]`);
+//     const oldBtn = wrapper.querySelector(`[data-faq-trigger="${activeIndex}"]`);
+//     const newBtn = wrapper.querySelector(`[data-faq-trigger="${newIndex}"]`);
+
+//     if (activeTimeline) activeTimeline.kill();
+
+//     oldBtn.removeAttribute("data-is-active");
+//     newBtn.setAttribute("data-is-active", "");
+
+//     gsap.to(oldTarget, {
+//       autoAlpha: 0,
+//       duration: config.transitionDuration,
+//       pointerEvents: "none",
+//       ease: "power2.inOut",
+//     });
+
+//     activeIndex = newIndex;
+
+//     if (prefersReducedMotion) {
+//       gsap.to(newTarget, {
+//         autoAlpha: 1,
+//         duration: config.transitionDuration,
+//         pointerEvents: "auto",
+//         ease: "power2.inOut",
+//       });
+//       return;
+//     }
+
+//     const currentSplit = splitInstances.get(newIndex);
+//     if (!currentSplit) return;
+
+//     newTarget.setAttribute("aria-hidden", "true");
+
+//     activeTimeline = gsap.timeline();
+
+//     activeTimeline
+//       .to(newTarget, {
+//         autoAlpha: 1,
+//         duration: config.transitionDuration,
+//         pointerEvents: "auto",
+//         ease: "power2.inOut",
+//       })
+//       .fromTo(
+//         currentSplit.chars,
+//         { opacity: config.baseOpacity },
+//         {
+//           opacity: 1,
+//           duration: config.charDuration,
+//           ease: "power1.out",
+//           stagger: {
+//             each: config.charStagger,
+//             ease: "power2.inOut",
+//           },
+//           onComplete: () => {
+//             newTarget.removeAttribute("aria-hidden");
+//           },
+//         },
+//       );
+//   }
+
+//   buttons.forEach((btn) => {
+//     btn.addEventListener("click", () => {
+//       const targetIndex = btn.getAttribute("data-faq-trigger");
+//       switchTab(targetIndex);
+//     });
+//   });
+// }
+
+// document.addEventListener("DOMContentLoaded", () => {
+//   initTypewriter();
+//   initFaqTabs();
+// });
+
+// /* -- Spectral Readout Form Functionality -- */
+// (function () {
+//   const ENDPOINT = "https://formcarry.com/s/hVtd9IlWkwK";
+//   const MAX_BYTES = 15 * 1024 * 1024;
+//   const ALLOWED = ["csv", "txt", "tsv", "json", "jdx", "dx", "jcm", "spc"];
+//   const prefersReducedMotion = window.matchMedia(
+//     "(prefers-reduced-motion: reduce)",
+//   ).matches;
+
+//   const state = { file: null };
+//   let root,
+//     box,
+//     dropzone,
+//     fileInput,
+//     icon,
+//     texts,
+//     statusEl,
+//     bottom,
+//     emailInput,
+//     promptInput,
+//     submit;
+//   let progress, fill, message, resetBtn, honeypot;
+//   let dragDepth = 0;
+
+//   const D = (d) => (prefersReducedMotion ? 0 : d);
+//   const getExt = (name) =>
+//     name && name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+//   const locked = () =>
+//     root.dataset.state === "sending" || root.dataset.state === "sent";
+
+//   function cacheEls() {
+//     root = document.querySelector('[data-form="root"]');
+//     if (!root) return false;
+//     box = root.parentElement;
+//     dropzone = root.querySelector('[data-form="dropzone"]');
+//     fileInput = root.querySelector('[data-form="file-input"]');
+//     icon = root.querySelector('[data-form="upload-icon"]');
+//     texts = root.querySelector('[data-form="upload-texts"]');
+//     statusEl = root.querySelector('[data-form="status"]');
+//     bottom = root.querySelector('[data-form="bottom"]');
+//     emailInput = root.querySelector('[data-form="email"]');
+//     promptInput = root.querySelector('[data-form="prompt"]');
+//     submit = root.querySelector('[data-form="submit"]');
+
+//     const required = {
+//       dropzone,
+//       fileInput,
+//       icon,
+//       texts,
+//       bottom,
+//       emailInput,
+//       promptInput,
+//       submit,
+//     };
+//     const missing = Object.keys(required).filter((k) => !required[k]);
+//     if (missing.length) {
+//       console.warn("[sfm-form] missing data-form hooks:", missing.join(", "));
+//       return false;
+//     }
+//     return true;
+//   }
+
+//   function buildProgress() {
+//     progress = document.createElement("div");
+//     progress.setAttribute("data-form", "progress");
+//     progress.setAttribute("role", "progressbar");
+//     progress.setAttribute("aria-label", "Upload progress");
+//     progress.setAttribute("aria-valuemin", "0");
+//     progress.setAttribute("aria-valuemax", "100");
+//     progress.setAttribute("aria-valuenow", "0");
+//     fill = document.createElement("div");
+//     fill.setAttribute("data-form", "progress-fill");
+//     progress.appendChild(fill);
+//     root.appendChild(progress);
+//   }
+
+//   function buildMessage() {
+//     message = document.createElement("p");
+//     message.setAttribute("data-form", "message");
+//     message.setAttribute("aria-live", "assertive");
+//     bottom.insertBefore(message, bottom.firstChild);
+//   }
+
+//   function buildReset() {
+//     resetBtn = document.createElement("button");
+//     resetBtn.type = "button";
+//     resetBtn.setAttribute("data-form", "reset");
+//     resetBtn.textContent = "Send another";
+//     resetBtn.addEventListener("click", resetForm);
+//     dropzone.appendChild(resetBtn);
+//   }
+
+//   // Bots that autofill hidden fields get dropped before any network call.
+//   function buildHoneypot() {
+//     honeypot = document.createElement("input");
+//     honeypot.type = "text";
+//     honeypot.name = "_gotcha";
+//     honeypot.tabIndex = -1;
+//     honeypot.autocomplete = "off";
+//     honeypot.setAttribute("aria-hidden", "true");
+//     honeypot.style.cssText =
+//       "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;";
+//     root.appendChild(honeypot);
+//   }
+
+//   function ensureStatus() {
+//     if (statusEl) return;
+//     statusEl = document.createElement("p");
+//     statusEl.setAttribute("data-form", "status");
+//     statusEl.setAttribute("aria-live", "polite");
+//     statusEl.className = "data-form_upload-title heading-h2";
+//     dropzone.appendChild(statusEl);
+//   }
+
+//   function setStatusText(text) {
+//     statusEl.textContent = text;
+//   }
+
+//   function showMessage(text, tone) {
+//     message.textContent = text;
+//     message.setAttribute("data-tone", tone || "hint");
+//   }
+
+//   function clearMessage() {
+//     message.textContent = "";
+//     message.removeAttribute("data-tone");
+//   }
+
+//   function isEmailValid() {
+//     return emailInput.value.trim() !== "" && emailInput.checkValidity();
+//   }
+
+//   function isFormComplete() {
+//     return !!state.file && isEmailValid() && promptInput.value.trim() !== "";
+//   }
+
+//   function updateSubmitState() {
+//     submit.disabled = !isFormComplete();
+//   }
+
+//   function validateFile(file) {
+//     if (!file || file.size === 0)
+//       return {
+//         ok: false,
+//         reason: "That file looks empty. Pick another readout.",
+//       };
+//     if (file.size > MAX_BYTES)
+//       return {
+//         ok: false,
+//         reason: "Over 15MB. Export a smaller readout and retry.",
+//       };
+//     if (!ALLOWED.includes(getExt(file.name))) {
+//       return {
+//         ok: false,
+//         reason:
+//           "Unsupported format. Use CSV, TXT, TSV, JSON, JDX, DX, JCM or SPC.",
+//       };
+//     }
+//     return { ok: true };
+//   }
+
+//   function handleFiles(list) {
+//     if (!list || !list.length || locked()) return;
+//     const file = list[0];
+//     const check = validateFile(file);
+//     if (!check.ok) {
+//       showMessage(check.reason, "error");
+//       return;
+//     }
+//     list.length > 1
+//       ? showMessage("One file at a time. Using the first.", "hint")
+//       : clearMessage();
+//     state.file = file;
+//     setState("uploaded");
+//     updateSubmitState();
+//   }
+
+//   function setState(next) {
+//     root.dataset.state = next;
+
+//     if (next === "idle") {
+//       setStatusText("");
+//       gsap.set(statusEl, { autoAlpha: 0, display: "none" });
+//       gsap.set([icon, texts], { display: "" });
+//       gsap.to([icon, texts], { autoAlpha: 1, duration: D(0.3) });
+//       gsap.to(bottom, {
+//         autoAlpha: 1,
+//         duration: D(0.3),
+//         onComplete: () => (bottom.style.pointerEvents = ""),
+//       });
+//       fill.style.width = "0%";
+//       progress.setAttribute("aria-valuenow", "0");
+//       root.removeAttribute("aria-busy");
+//     }
+
+//     if (next === "uploaded") {
+//       gsap.to([icon, texts], {
+//         autoAlpha: 0,
+//         duration: D(0.25),
+//         onComplete: () => gsap.set([icon, texts], { display: "none" }),
+//       });
+//       setStatusText("Uploaded");
+//       gsap.set(statusEl, { display: "flex" });
+//       gsap.fromTo(
+//         statusEl,
+//         { autoAlpha: 0 },
+//         { autoAlpha: 1, duration: D(0.3), delay: D(0.08) },
+//       );
+//       gsap.to(bottom, {
+//         autoAlpha: 1,
+//         duration: D(0.3),
+//         onComplete: () => (bottom.style.pointerEvents = ""),
+//       });
+//       root.removeAttribute("aria-busy");
+//     }
+
+//     if (next === "sending") {
+//       root.setAttribute("aria-busy", "true");
+//     }
+
+//     if (next === "sent") {
+//       setStatusText("Sent");
+//       root.removeAttribute("aria-busy");
+//       bottom.style.pointerEvents = "none";
+//       gsap.to(bottom, { autoAlpha: 0.35, duration: D(0.4) });
+//     }
+//   }
+
+//   function submitForm(payload, onProgress) {
+//     return new Promise((resolve, reject) => {
+//       const xhr = new XMLHttpRequest();
+//       xhr.open("POST", ENDPOINT);
+//       xhr.setRequestHeader("Accept", "application/json");
+//       xhr.upload.addEventListener("progress", (e) => {
+//         if (e.lengthComputable)
+//           onProgress(Math.round((e.loaded / e.total) * 100));
+//       });
+//       xhr.addEventListener("load", () => {
+//         xhr.status >= 200 && xhr.status < 300
+//           ? resolve()
+//           : reject(new Error("status " + xhr.status));
+//       });
+//       xhr.addEventListener("error", () => reject(new Error("network")));
+//       xhr.addEventListener("abort", () => reject(new Error("aborted")));
+//       xhr.send(payload);
+//     });
+//   }
+
+//   function handleSubmit(e) {
+//     e.preventDefault();
+//     if (!isFormComplete() || root.dataset.state === "sending") return;
+//     if (honeypot && honeypot.value) return;
+
+//     clearMessage();
+//     setState("sending");
+//     submit.disabled = true;
+
+//     const payload = new FormData();
+//     payload.append("email", emailInput.value.trim());
+//     payload.append("prompt", promptInput.value.trim());
+//     payload.append("spectral_readout", state.file, state.file.name);
+//     payload.append("_gotcha", honeypot ? honeypot.value : "");
+
+//     submitForm(payload, (pct) => {
+//       fill.style.width = pct + "%";
+//       progress.setAttribute("aria-valuenow", String(pct));
+//     })
+//       .then(() => {
+//         fill.style.width = "100%";
+//         progress.setAttribute("aria-valuenow", "100");
+//         emailInput.disabled = true;
+//         promptInput.disabled = true;
+//         setState("sent");
+//       })
+//       .catch(() => {
+//         showMessage(
+//           "Send failed. Check your connection and try again.",
+//           "error",
+//         );
+//         setState("uploaded");
+//         updateSubmitState();
+//       });
+//   }
+
+//   function resetForm() {
+//     state.file = null;
+//     fileInput.value = "";
+//     promptInput.value = "";
+//     emailInput.disabled = false;
+//     promptInput.disabled = false;
+//     clearMessage();
+//     setState("idle");
+//     updateSubmitState();
+//   }
+
+//   function onDragEnter(e) {
+//     e.preventDefault();
+//     if (locked()) return;
+//     dragDepth++;
+//     box.dataset.drag = "active";
+//   }
+
+//   function onDragOver(e) {
+//     e.preventDefault();
+//   }
+
+//   function onDragLeave(e) {
+//     e.preventDefault();
+//     dragDepth--;
+//     if (dragDepth <= 0) {
+//       dragDepth = 0;
+//       delete box.dataset.drag;
+//     }
+//   }
+
+//   function onDrop(e) {
+//     e.preventDefault();
+//     dragDepth = 0;
+//     delete box.dataset.drag;
+//     if (locked()) return;
+//     handleFiles(e.dataTransfer.files);
+//   }
+
+//   function preventWindowDrop(e) {
+//     e.preventDefault();
+//   }
+
+//   function initBaseline() {
+//     root.dataset.state = "idle";
+//     box.setAttribute("data-form", "box");
+//     gsap.set(statusEl, { autoAlpha: 0, display: "none" });
+//     gsap.set([icon, texts], { autoAlpha: 1 });
+//     fill.style.width = "0%";
+//     submit.disabled = true;
+//   }
+
+//   function bindEvents() {
+//     fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+//     emailInput.addEventListener("input", updateSubmitState);
+//     promptInput.addEventListener("input", updateSubmitState);
+//     root.addEventListener("submit", handleSubmit);
+
+//     root.addEventListener("dragenter", onDragEnter);
+//     root.addEventListener("dragover", onDragOver);
+//     root.addEventListener("dragleave", onDragLeave);
+//     root.addEventListener("drop", onDrop);
+//     window.addEventListener("dragover", preventWindowDrop);
+//     window.addEventListener("drop", preventWindowDrop);
+//   }
+
+//   function initDataForm() {
+//     if (!cacheEls()) return;
+//     if (root.dataset.sfmReady) return;
+//     root.dataset.sfmReady = "true";
+//     ensureStatus();
+//     buildProgress();
+//     buildMessage();
+//     buildReset();
+//     buildHoneypot();
+//     initBaseline();
+//     bindEvents();
+//   }
+
+//   document.addEventListener("DOMContentLoaded", initDataForm);
+// })();
+
+// function initPlatformScroll() {
+//   const track = document.querySelector('[data-platform="track"]');
+//   const colsWrapper = document.querySelector('[data-platform="text-wrapper"]');
+//   const cols = gsap.utils.toArray('[data-platform="text-col"]');
+//   const bgImages = gsap.utils.toArray('[data-platform="bg-image"]');
+
+//   if (!track || !colsWrapper || cols.length === 0) return;
+
+//   const prefersReducedMotion = window.matchMedia(
+//     "(prefers-reduced-motion: reduce)",
+//   ).matches;
+//   if (prefersReducedMotion) return;
+
+//   const tl = gsap.timeline({
+//     scrollTrigger: {
+//       trigger: track,
+//       start: "top top",
+//       end: "bottom bottom",
+//       scrub: 1,
+//       invalidateOnRefresh: true,
+//     },
+//   });
+
+//   tl.to(
+//     colsWrapper,
+//     {
+//       y: () => -(colsWrapper.scrollHeight - window.innerHeight),
+//       ease: "none",
+//     },
+//     0,
+//   );
+
+//   const fadeDuration = 1 / (cols.length - 1);
+
+//   bgImages.forEach((img, index) => {
+//     if (index === 0) return;
+
+//     tl.to(
+//       img,
+//       {
+//         opacity: 1,
+//         ease: "none",
+//         duration: fadeDuration,
+//       },
+//       (index - 1) * fadeDuration,
+//     );
+//   });
+// }
+
+// function initMagneticCorpus() {
+//   const section = document.querySelector('[data-about="section"]');
+//   const wrapper = document.querySelector('[data-about="floats-wrapper"]');
+//   const items = gsap.utils.toArray('[data-about="float-item"]');
+
+//   if (!section || !wrapper || items.length === 0) return;
+
+//   const prefersReducedMotion = window.matchMedia(
+//     "(prefers-reduced-motion: reduce)",
+//   ).matches;
+//   const isMobile = window.matchMedia("(max-width: 767px)").matches;
+
+//   if (prefersReducedMotion || isMobile) return;
+
+//   gsap.set(items, {
+//     xPercent: -50,
+//     yPercent: -50,
+//     x: 0,
+//     y: 0,
+//   });
+
+//   let maxTravelX = window.innerWidth * 0.08;
+//   let maxTravelY = window.innerHeight * 0.08;
+
+//   const itemSetters = items.map((item) => {
+//     const depth = parseFloat(item.getAttribute("data-depth")) || 0.1;
+//     return {
+//       xTo: gsap.quickTo(item, "x", { duration: 0.8, ease: "power3.out" }),
+//       yTo: gsap.quickTo(item, "y", { duration: 0.8, ease: "power3.out" }),
+//       depth: depth,
+//     };
+//   });
+
+//   const handleResize = () => {
+//     maxTravelX = window.innerWidth * 0.08;
+//     maxTravelY = window.innerHeight * 0.08;
+//   };
+
+//   const handleMouseMove = (e) => {
+//     const rect = section.getBoundingClientRect();
+
+//     // Normalize coordinates relative to the section's width/height, not the window
+//     const normX = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
+//     const normY = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
+
+//     itemSetters.forEach((setter) => {
+//       const moveX = normX * maxTravelX * setter.depth;
+//       const moveY = normY * maxTravelY * setter.depth;
+
+//       setter.xTo(moveX);
+//       setter.yTo(moveY);
+//     });
+//   };
+
+//   const handleMouseLeave = () => {
+//     itemSetters.forEach((setter) => {
+//       setter.xTo(0);
+//       setter.yTo(0);
+//     });
+//   };
+
+//   window.addEventListener("resize", handleResize);
+//   section.addEventListener("mousemove", handleMouseMove);
+//   section.addEventListener("mouseleave", handleMouseLeave);
+// }
+
+// function initProcessTabs() {
+//   const contentWrap = document.querySelector(".process_tab-content-wrap");
+//   const btns = gsap.utils.toArray('[data-process="tab-btn"]');
+//   const panels = gsap.utils.toArray('[data-process^="step-"]');
+
+//   if (!contentWrap || btns.length === 0 || panels.length === 0) return;
+
+//   let currentIndex = 0;
+//   let isAnimating = false;
+
+//   btns.forEach((btn, idx) => {
+//     btn.setAttribute("data-is-active", idx === 0 ? "true" : "false");
+//   });
+
+//   gsap.set(panels, {
+//     position: (i) => (i === 0 ? "relative" : "absolute"),
+//     top: 0,
+//     left: 0,
+//     width: "100%",
+//   });
+
+//   function switchTab(nextIndex) {
+//     if (nextIndex === currentIndex || isAnimating) return;
+//     isAnimating = true;
+
+//     const currentPanel = panels[currentIndex];
+//     const nextPanel = panels[nextIndex];
+
+//     btns[currentIndex].setAttribute("data-is-active", "false");
+//     btns[nextIndex].setAttribute("data-is-active", "true");
+
+//     const startHeight = contentWrap.offsetHeight;
+//     gsap.set(contentWrap, { height: startHeight, overflow: "hidden" });
+
+//     gsap.set(currentPanel, { position: "absolute", pointerEvents: "none" });
+//     gsap.set(nextPanel, {
+//       position: "relative",
+//       visibility: "visible",
+//       opacity: 1,
+//       y: 0,
+//       pointerEvents: "auto",
+//     });
+
+//     contentWrap.style.height = "auto";
+//     const targetHeight = contentWrap.offsetHeight;
+//     contentWrap.style.height = startHeight + "px";
+
+//     gsap.set(nextPanel, { opacity: 0 });
+
+//     const tl = gsap.timeline({
+//       onComplete: () => {
+//         currentIndex = nextIndex;
+//         isAnimating = false;
+//         gsap.set(contentWrap, { clearProps: "height,overflow" });
+//       },
+//     });
+
+//     tl.to(
+//       contentWrap,
+//       { height: targetHeight, duration: 0.4, ease: "power3.inOut" },
+//       0,
+//     );
+
+//     tl.to(
+//       currentPanel,
+//       {
+//         opacity: 0,
+//         y: -10,
+//         duration: 0.3,
+//         ease: "power2.in",
+//         onComplete: () => gsap.set(currentPanel, { visibility: "hidden" }),
+//       },
+//       0,
+//     );
+
+//     tl.fromTo(
+//       nextPanel,
+//       { opacity: 0, y: 15 },
+//       { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" },
+//       0.1,
+//     );
+//   }
+
+//   btns.forEach((btn, idx) => {
+//     btn.addEventListener("click", () => switchTab(idx));
+//   });
+// }
+
+// document.addEventListener("DOMContentLoaded", () => {
+//   initPlatformScroll();
+//   initMagneticCorpus();
+//   initProcessTabs();
+// });
+
+function initPhaseSection() {
+  const section = document.querySelector('[data-phase="section"]');
+  if (!section) return;
+
+  const contentWrap = section.querySelector('[data-phase="content"]');
+  const cols = section.querySelectorAll('[data-phase="col"]');
+  const images = section.querySelectorAll('[data-phase="image"]');
+
+  if (!contentWrap || cols.length < 2 || images.length !== cols.length) return;
+
+  gsap.registerPlugin(ScrollTrigger);
+
+  const mm = gsap.matchMedia();
+
+  mm.add(
+    {
+      isDesktop: "(min-width: 767px)",
+      reduceMotion: "(prefers-reduced-motion: reduce)",
+    },
+    (context) => {
+      const { isDesktop, reduceMotion } = context.conditions;
+      if (!isDesktop || reduceMotion) return;
+
+      gsap.set(contentWrap, { position: "relative", overflow: "hidden" });
+      gsap.set(cols, {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        yPercent: (i) => (i === 0 ? 0 : 100),
+      });
+      gsap.set(images, { autoAlpha: (i) => (i === 0 ? 1 : 0) });
+
+      cols.forEach((col, i) => {
+        if (i === 0) col.removeAttribute("inert");
+        else col.setAttribute("inert", "");
+      });
+
+      const steps = cols.length - 1;
+      let lastActive = 0;
+
+      const tl = gsap.timeline({
+        defaults: { ease: "power2.inOut", duration: 1 },
+        scrollTrigger: {
+          trigger: section,
+          start: "top top",
+          end: () => `+=${window.innerHeight * steps}`,
+          pin: true,
+          pinType: "transform",
+          scrub: 1,
+          invalidateOnRefresh: true,
+          anticipatePin: 1,
+          onUpdate: (self) => {
+            const active = Math.round(self.progress * steps);
+            if (active === lastActive) return;
+            cols.forEach((col, i) => {
+              if (i === active) col.removeAttribute("inert");
+              else col.setAttribute("inert", "");
+            });
+            lastActive = active;
+          },
         },
       });
 
-    masterTimeline.add(phraseTimeline);
-  });
+      for (let i = 0; i < steps; i++) {
+        const label = `step-${i}`;
+        tl.addLabel(label)
+          .to(cols[i], { yPercent: -100 }, label)
+          .to(cols[i + 1], { yPercent: 0 }, label)
+          .to(images[i], { autoAlpha: 0 }, label)
+          .to(images[i + 1], { autoAlpha: 1 }, label);
+      }
+
+      return () => {
+        cols.forEach((col) => col.removeAttribute("inert"));
+        lastActive = 0;
+      };
+    },
+  );
 }
 
-function initFaqTabs() {
-  const config = {
-    baseOpacity: 0.5,
-    charStagger: 0.006,
-    charDuration: 0.05,
-    transitionDuration: 0.4,
+function initHeroRotation() {
+  const container = document.querySelector('[data-hero="container"]');
+  if (!container || container.dataset.heroInit === "true") return;
+  container.dataset.heroInit = "true";
+
+  const stages = Array.from(document.querySelectorAll("[data-hero-stage]"));
+  const cards = Array.from(document.querySelectorAll("[data-hero-card]"));
+  const gradientSource = document.querySelector(".text-hero-gradient");
+
+  if (stages.length !== 3 || cards.length !== 4) return;
+
+  const REM = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const STAGE_DURATION = 4000;
+  const TRANSITION = 0.9;
+  const PAD_FEATURED = "0.63rem";
+  const PAD_TILE = "0.25rem";
+
+  const layouts = {
+    1: {
+      featured: 1,
+      tiles: { 2: [0.35, 0.3], 3: [0.08, 0.08], 4: [0.5, 0.08] },
+    },
+    2: {
+      featured: 2,
+      tiles: { 1: [0.45, 0.55], 3: [0.25, 0.08], 4: [0.55, 0.08] },
+    },
+    3: {
+      featured: 3,
+      tiles: { 1: [0.05, 0.55], 2: [0.15, 0.08], 4: [0.4, 0.15] },
+    },
   };
 
-  const wrapper = document.querySelector("[data-faq-wrapper]");
-  if (!wrapper) return;
+  const gradients = setupGradients(gradientSource);
+  const state = { current: 1, timer: null, tl: null, paused: false };
+  const reduceQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const mobileQuery = window.matchMedia("(max-width: 766px)");
 
-  const buttons = wrapper.querySelectorAll("[data-faq-trigger]");
-  const targets = wrapper.querySelectorAll("[data-faq-target]");
-  const prefersReducedMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
+  function setupGradients(source) {
+    if (!source) return null;
+    const text = source.textContent.trim();
+    source.setAttribute("data-hero-gradient", "wrap");
+    source.textContent = "";
+    const spans = [1, 2, 3].map((n) => {
+      const s = document.createElement("span");
+      s.setAttribute("data-hero-gradient", String(n));
+      s.textContent = text;
+      if (n > 1) s.setAttribute("aria-hidden", "true");
+      source.appendChild(s);
+      return s;
+    });
+    return spans;
+  }
 
-  let activeIndex = "1";
-  let activeTimeline = null;
-  const splitInstances = new Map();
+  function tileSize() {
+    return mobileQuery.matches ? { w: 59, h: 67 } : { w: 80, h: 91 };
+  }
 
-  wrapper.setAttribute("aria-live", "polite");
+  function featuredSize() {
+    return mobileQuery.matches
+      ? { w: 127, h: 114 }
+      : { w: 15.44 * REM, h: 13.19 * REM };
+  }
 
-  if (!prefersReducedMotion) {
-    targets.forEach((target) => {
-      const index = target.getAttribute("data-faq-target");
-      const split = new SplitText(target, { type: "words, chars" });
-      splitInstances.set(index, split);
+  function tilePos(topPct, rightPct) {
+    const r = container.getBoundingClientRect();
+    const s = tileSize();
+    return {
+      top: r.height * topPct,
+      left: r.width - s.w - r.width * rightPct,
+      width: s.w,
+      height: s.h,
+    };
+  }
 
-      if (index !== activeIndex) {
-        gsap.set(split.chars, { opacity: config.baseOpacity });
+  function featuredPos() {
+    const r = container.getBoundingClientRect();
+    const f = featuredSize();
+    const offset = mobileQuery.matches ? 12 : 0.81 * REM;
+    const inset = mobileQuery.matches ? 12 : 1.06 * REM;
+    return {
+      top: r.height - f.h - offset,
+      left: inset,
+      width: f.w,
+      height: f.h,
+    };
+  }
+
+  function positionFor(cardNum, stageNum) {
+    const layout = layouts[stageNum];
+    return cardNum === layout.featured
+      ? featuredPos()
+      : tilePos(...layout.tiles[cardNum]);
+  }
+
+  function applyInitialState() {
+    stages.forEach((s, i) => {
+      if (i === 0) {
+        s.setAttribute("data-hero-stage-state", "active");
+        s.removeAttribute("aria-hidden");
+      } else {
+        s.removeAttribute("data-hero-stage-state");
+        s.setAttribute("aria-hidden", "true");
       }
     });
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      if (num === layouts[1].featured)
+        card.setAttribute("data-hero-card-state", "featured");
+      else card.removeAttribute("data-hero-card-state");
+    });
   }
 
-  function switchTab(newIndex) {
-    if (newIndex === activeIndex || !newIndex) return;
+  function normalize() {
+    const featuredNum = layouts[state.current].featured;
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      const pos = positionFor(num, state.current);
+      gsap.set(card, {
+        top: pos.top,
+        left: pos.left,
+        right: "auto",
+        bottom: "auto",
+        width: pos.width,
+        height: pos.height,
+        paddingBottom: num === featuredNum ? PAD_FEATURED : PAD_TILE,
+      });
+    });
+  }
 
-    const oldTarget = wrapper.querySelector(
-      `[data-faq-target="${activeIndex}"]`,
+  function rotate(nextNum) {
+    if (state.current === nextNum || state.tl) return;
+
+    const layout = layouts[nextNum];
+    const currentStageEl = stages.find(
+      (s) => +s.dataset.heroStage === state.current,
     );
-    const newTarget = wrapper.querySelector(`[data-faq-target="${newIndex}"]`);
-    const oldBtn = wrapper.querySelector(`[data-faq-trigger="${activeIndex}"]`);
-    const newBtn = wrapper.querySelector(`[data-faq-trigger="${newIndex}"]`);
+    const nextStageEl = stages.find((s) => +s.dataset.heroStage === nextNum);
 
-    if (activeTimeline) activeTimeline.kill();
+    nextStageEl.setAttribute("data-hero-stage-state", "active");
+    nextStageEl.removeAttribute("aria-hidden");
 
-    oldBtn.removeAttribute("data-is-active");
-    newBtn.setAttribute("data-is-active", "");
-
-    gsap.to(oldTarget, {
-      autoAlpha: 0,
-      duration: config.transitionDuration,
-      pointerEvents: "none",
-      ease: "power2.inOut",
+    const tl = gsap.timeline({
+      onComplete: () => {
+        currentStageEl.removeAttribute("data-hero-stage-state");
+        currentStageEl.setAttribute("aria-hidden", "true");
+        cards.forEach((card) => {
+          const num = +card.dataset.heroCard;
+          if (num === layout.featured)
+            card.setAttribute("data-hero-card-state", "featured");
+          else card.removeAttribute("data-hero-card-state");
+        });
+        state.current = nextNum;
+        state.tl = null;
+        schedule();
+      },
     });
 
-    activeIndex = newIndex;
+    tl.to(
+      currentStageEl,
+      { autoAlpha: 0, duration: 0.6, ease: "power2.inOut" },
+      0,
+    ).to(nextStageEl, { autoAlpha: 1, duration: 0.6, ease: "power2.inOut" }, 0);
 
-    if (prefersReducedMotion) {
-      gsap.to(newTarget, {
-        autoAlpha: 1,
-        duration: config.transitionDuration,
-        pointerEvents: "auto",
-        ease: "power2.inOut",
+    if (gradients) {
+      gradients.forEach((span, i) => {
+        const isNext = i + 1 === nextNum;
+        tl.to(
+          span,
+          { autoAlpha: isNext ? 1 : 0, duration: 0.6, ease: "power2.inOut" },
+          0,
+        );
       });
-      return;
     }
 
-    const currentSplit = splitInstances.get(newIndex);
-    if (!currentSplit) return;
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      const inner = card.querySelector("[data-hero-card-inner]");
+      const tag = card.querySelector("[data-hero-card-tag]");
+      const willFeature = num === layout.featured;
+      const wasFeatured = num === layouts[state.current].featured;
+      const pos = positionFor(num, nextNum);
 
-    newTarget.setAttribute("aria-hidden", "true");
-
-    activeTimeline = gsap.timeline();
-
-    activeTimeline
-      .to(newTarget, {
-        autoAlpha: 1,
-        duration: config.transitionDuration,
-        pointerEvents: "auto",
-        ease: "power2.inOut",
-      })
-      .fromTo(
-        currentSplit.chars,
-        { opacity: config.baseOpacity },
+      tl.to(
+        card,
         {
-          opacity: 1,
-          duration: config.charDuration,
-          ease: "power1.out",
-          stagger: {
-            each: config.charStagger,
-            ease: "power2.inOut",
-          },
-          onComplete: () => {
-            newTarget.removeAttribute("aria-hidden");
-          },
+          top: pos.top,
+          left: pos.left,
+          width: pos.width,
+          height: pos.height,
+          paddingBottom: willFeature ? PAD_FEATURED : PAD_TILE,
+          duration: TRANSITION,
+          ease: "power3.inOut",
         },
+        0,
       );
+
+      if (willFeature && !wasFeatured) {
+        tl.to(tag, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, 0).to(
+          inner,
+          { autoAlpha: 1, duration: 0.4, ease: "power2.out" },
+          TRANSITION * 0.5,
+        );
+      } else if (!willFeature && wasFeatured) {
+        tl.to(inner, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, 0).to(
+          tag,
+          { autoAlpha: 1, duration: 0.4, ease: "power2.out" },
+          TRANSITION * 0.4,
+        );
+      }
+    });
+
+    state.tl = tl;
   }
 
-  buttons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const targetIndex = btn.getAttribute("data-faq-trigger");
-      switchTab(targetIndex);
-    });
+  function nextNum() {
+    return state.current === 3 ? 1 : state.current + 1;
+  }
+
+  function schedule() {
+    clearTimeout(state.timer);
+    if (state.paused || reduceQuery.matches) return;
+    state.timer = setTimeout(() => rotate(nextNum()), STAGE_DURATION);
+  }
+
+  function pause() {
+    if (state.paused) return;
+    state.paused = true;
+    clearTimeout(state.timer);
+    if (state.tl) state.tl.pause();
+  }
+
+  function resume() {
+    if (!state.paused) return;
+    state.paused = false;
+    if (state.tl) state.tl.play();
+    else schedule();
+  }
+
+  function handleResize() {
+    if (state.tl) state.tl.progress(1);
+    normalize();
+  }
+
+  reduceQuery.addEventListener("change", (e) => {
+    if (e.matches) pause();
+    else resume();
   });
+
+  mobileQuery.addEventListener("change", handleResize);
+
+  container.addEventListener("mouseenter", pause);
+  container.addEventListener("mouseleave", resume);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) pause();
+    else resume();
+  });
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(handleResize, 150);
+  });
+
+  applyInitialState();
+  normalize();
+  if (!reduceQuery.matches) schedule();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  initTypewriter();
-  initFaqTabs();
+function initVideoPlayer() {
+  const btn = document.querySelector("[data-video-btn]");
+  const thumb = document.querySelector("[data-video-thumb]");
+  const video = document.querySelector("[data-video-element]");
+
+  if (!btn || !thumb || !video) return;
+
+  function handlePlay() {
+    btn.setAttribute("aria-disabled", "true");
+
+    const playPromise = video.play();
+
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          const prefersReducedMotion = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+          ).matches;
+          const animDuration = prefersReducedMotion ? 0 : 0.4;
+
+          gsap.to([btn, thumb], {
+            opacity: 0,
+            pointerEvents: "none",
+            visibility: "hidden",
+            duration: animDuration,
+            ease: "power2.inOut",
+          });
+
+          gsap.to(video, {
+            opacity: 1,
+            pointerEvents: "auto",
+            visibility: "visible",
+            duration: animDuration,
+            ease: "power2.inOut",
+            onComplete: () => video.focus(),
+          });
+        })
+        .catch((error) => {
+          btn.removeAttribute("aria-disabled");
+        });
+    }
+  }
+
+  btn.addEventListener("click", handlePlay);
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  initHeroRotation();
+  initVideoPlayer();
+  initPhaseSection();
 });
-
-(function () {
-  const ENDPOINT = "https://formcarry.com/s/hVtd9IlWkwK";
-  const MAX_BYTES = 15 * 1024 * 1024;
-  const ALLOWED = ["csv", "txt", "tsv", "json", "jdx", "dx", "jcm", "spc"];
-  const prefersReducedMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
-
-  const state = { file: null };
-  let root,
-    box,
-    dropzone,
-    fileInput,
-    icon,
-    texts,
-    statusEl,
-    bottom,
-    emailInput,
-    promptInput,
-    submit;
-  let progress, fill, message, resetBtn, honeypot;
-  let dragDepth = 0;
-
-  const D = (d) => (prefersReducedMotion ? 0 : d);
-  const getExt = (name) =>
-    name && name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-  const locked = () =>
-    root.dataset.state === "sending" || root.dataset.state === "sent";
-
-  function cacheEls() {
-    root = document.querySelector('[data-form="root"]');
-    if (!root) return false;
-    box = root.parentElement;
-    dropzone = root.querySelector('[data-form="dropzone"]');
-    fileInput = root.querySelector('[data-form="file-input"]');
-    icon = root.querySelector('[data-form="upload-icon"]');
-    texts = root.querySelector('[data-form="upload-texts"]');
-    statusEl = root.querySelector('[data-form="status"]');
-    bottom = root.querySelector('[data-form="bottom"]');
-    emailInput = root.querySelector('[data-form="email"]');
-    promptInput = root.querySelector('[data-form="prompt"]');
-    submit = root.querySelector('[data-form="submit"]');
-
-    const required = {
-      dropzone,
-      fileInput,
-      icon,
-      texts,
-      bottom,
-      emailInput,
-      promptInput,
-      submit,
-    };
-    const missing = Object.keys(required).filter((k) => !required[k]);
-    if (missing.length) {
-      console.warn("[sfm-form] missing data-form hooks:", missing.join(", "));
-      return false;
-    }
-    return true;
-  }
-
-  function buildProgress() {
-    progress = document.createElement("div");
-    progress.setAttribute("data-form", "progress");
-    progress.setAttribute("role", "progressbar");
-    progress.setAttribute("aria-label", "Upload progress");
-    progress.setAttribute("aria-valuemin", "0");
-    progress.setAttribute("aria-valuemax", "100");
-    progress.setAttribute("aria-valuenow", "0");
-    fill = document.createElement("div");
-    fill.setAttribute("data-form", "progress-fill");
-    progress.appendChild(fill);
-    root.appendChild(progress);
-  }
-
-  function buildMessage() {
-    message = document.createElement("p");
-    message.setAttribute("data-form", "message");
-    message.setAttribute("aria-live", "assertive");
-    bottom.insertBefore(message, bottom.firstChild);
-  }
-
-  function buildReset() {
-    resetBtn = document.createElement("button");
-    resetBtn.type = "button";
-    resetBtn.setAttribute("data-form", "reset");
-    resetBtn.textContent = "Send another";
-    resetBtn.addEventListener("click", resetForm);
-    dropzone.appendChild(resetBtn);
-  }
-
-  // Bots that autofill hidden fields get dropped before any network call.
-  function buildHoneypot() {
-    honeypot = document.createElement("input");
-    honeypot.type = "text";
-    honeypot.name = "_gotcha";
-    honeypot.tabIndex = -1;
-    honeypot.autocomplete = "off";
-    honeypot.setAttribute("aria-hidden", "true");
-    honeypot.style.cssText =
-      "position:absolute;left:-9999px;width:1px;height:1px;opacity:0;";
-    root.appendChild(honeypot);
-  }
-
-  function ensureStatus() {
-    if (statusEl) return;
-    statusEl = document.createElement("p");
-    statusEl.setAttribute("data-form", "status");
-    statusEl.setAttribute("aria-live", "polite");
-    statusEl.className = "data-form_upload-title heading-h2";
-    dropzone.appendChild(statusEl);
-  }
-
-  function setStatusText(text) {
-    statusEl.textContent = text;
-  }
-
-  function showMessage(text, tone) {
-    message.textContent = text;
-    message.setAttribute("data-tone", tone || "hint");
-  }
-
-  function clearMessage() {
-    message.textContent = "";
-    message.removeAttribute("data-tone");
-  }
-
-  function isEmailValid() {
-    return emailInput.value.trim() !== "" && emailInput.checkValidity();
-  }
-
-  function isFormComplete() {
-    return !!state.file && isEmailValid() && promptInput.value.trim() !== "";
-  }
-
-  function updateSubmitState() {
-    submit.disabled = !isFormComplete();
-  }
-
-  function validateFile(file) {
-    if (!file || file.size === 0)
-      return {
-        ok: false,
-        reason: "That file looks empty. Pick another readout.",
-      };
-    if (file.size > MAX_BYTES)
-      return {
-        ok: false,
-        reason: "Over 15MB. Export a smaller readout and retry.",
-      };
-    if (!ALLOWED.includes(getExt(file.name))) {
-      return {
-        ok: false,
-        reason:
-          "Unsupported format. Use CSV, TXT, TSV, JSON, JDX, DX, JCM or SPC.",
-      };
-    }
-    return { ok: true };
-  }
-
-  function handleFiles(list) {
-    if (!list || !list.length || locked()) return;
-    const file = list[0];
-    const check = validateFile(file);
-    if (!check.ok) {
-      showMessage(check.reason, "error");
-      return;
-    }
-    list.length > 1
-      ? showMessage("One file at a time. Using the first.", "hint")
-      : clearMessage();
-    state.file = file;
-    setState("uploaded");
-    updateSubmitState();
-  }
-
-  function setState(next) {
-    root.dataset.state = next;
-
-    if (next === "idle") {
-      setStatusText("");
-      gsap.set(statusEl, { autoAlpha: 0, display: "none" });
-      gsap.set([icon, texts], { display: "" });
-      gsap.to([icon, texts], { autoAlpha: 1, duration: D(0.3) });
-      gsap.to(bottom, {
-        autoAlpha: 1,
-        duration: D(0.3),
-        onComplete: () => (bottom.style.pointerEvents = ""),
-      });
-      fill.style.width = "0%";
-      progress.setAttribute("aria-valuenow", "0");
-      root.removeAttribute("aria-busy");
-    }
-
-    if (next === "uploaded") {
-      gsap.to([icon, texts], {
-        autoAlpha: 0,
-        duration: D(0.25),
-        onComplete: () => gsap.set([icon, texts], { display: "none" }),
-      });
-      setStatusText("Uploaded");
-      gsap.set(statusEl, { display: "flex" });
-      gsap.fromTo(
-        statusEl,
-        { autoAlpha: 0 },
-        { autoAlpha: 1, duration: D(0.3), delay: D(0.08) },
-      );
-      gsap.to(bottom, {
-        autoAlpha: 1,
-        duration: D(0.3),
-        onComplete: () => (bottom.style.pointerEvents = ""),
-      });
-      root.removeAttribute("aria-busy");
-    }
-
-    if (next === "sending") {
-      root.setAttribute("aria-busy", "true");
-    }
-
-    if (next === "sent") {
-      setStatusText("Sent");
-      root.removeAttribute("aria-busy");
-      bottom.style.pointerEvents = "none";
-      gsap.to(bottom, { autoAlpha: 0.35, duration: D(0.4) });
-    }
-  }
-
-  function submitForm(payload, onProgress) {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", ENDPOINT);
-      xhr.setRequestHeader("Accept", "application/json");
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable)
-          onProgress(Math.round((e.loaded / e.total) * 100));
-      });
-      xhr.addEventListener("load", () => {
-        xhr.status >= 200 && xhr.status < 300
-          ? resolve()
-          : reject(new Error("status " + xhr.status));
-      });
-      xhr.addEventListener("error", () => reject(new Error("network")));
-      xhr.addEventListener("abort", () => reject(new Error("aborted")));
-      xhr.send(payload);
-    });
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (!isFormComplete() || root.dataset.state === "sending") return;
-    if (honeypot && honeypot.value) return;
-
-    clearMessage();
-    setState("sending");
-    submit.disabled = true;
-
-    const payload = new FormData();
-    payload.append("email", emailInput.value.trim());
-    payload.append("prompt", promptInput.value.trim());
-    payload.append("spectral_readout", state.file, state.file.name);
-    payload.append("_gotcha", honeypot ? honeypot.value : "");
-
-    submitForm(payload, (pct) => {
-      fill.style.width = pct + "%";
-      progress.setAttribute("aria-valuenow", String(pct));
-    })
-      .then(() => {
-        fill.style.width = "100%";
-        progress.setAttribute("aria-valuenow", "100");
-        emailInput.disabled = true;
-        promptInput.disabled = true;
-        setState("sent");
-      })
-      .catch(() => {
-        showMessage(
-          "Send failed. Check your connection and try again.",
-          "error",
-        );
-        setState("uploaded");
-        updateSubmitState();
-      });
-  }
-
-  function resetForm() {
-    state.file = null;
-    fileInput.value = "";
-    promptInput.value = "";
-    emailInput.disabled = false;
-    promptInput.disabled = false;
-    clearMessage();
-    setState("idle");
-    updateSubmitState();
-  }
-
-  function onDragEnter(e) {
-    e.preventDefault();
-    if (locked()) return;
-    dragDepth++;
-    box.dataset.drag = "active";
-  }
-
-  function onDragOver(e) {
-    e.preventDefault();
-  }
-
-  function onDragLeave(e) {
-    e.preventDefault();
-    dragDepth--;
-    if (dragDepth <= 0) {
-      dragDepth = 0;
-      delete box.dataset.drag;
-    }
-  }
-
-  function onDrop(e) {
-    e.preventDefault();
-    dragDepth = 0;
-    delete box.dataset.drag;
-    if (locked()) return;
-    handleFiles(e.dataTransfer.files);
-  }
-
-  function preventWindowDrop(e) {
-    e.preventDefault();
-  }
-
-  function initBaseline() {
-    root.dataset.state = "idle";
-    box.setAttribute("data-form", "box");
-    gsap.set(statusEl, { autoAlpha: 0, display: "none" });
-    gsap.set([icon, texts], { autoAlpha: 1 });
-    fill.style.width = "0%";
-    submit.disabled = true;
-  }
-
-  function bindEvents() {
-    fileInput.addEventListener("change", () => handleFiles(fileInput.files));
-    emailInput.addEventListener("input", updateSubmitState);
-    promptInput.addEventListener("input", updateSubmitState);
-    root.addEventListener("submit", handleSubmit);
-
-    root.addEventListener("dragenter", onDragEnter);
-    root.addEventListener("dragover", onDragOver);
-    root.addEventListener("dragleave", onDragLeave);
-    root.addEventListener("drop", onDrop);
-    window.addEventListener("dragover", preventWindowDrop);
-    window.addEventListener("drop", preventWindowDrop);
-  }
-
-  function initDataForm() {
-    if (!cacheEls()) return;
-    if (root.dataset.sfmReady) return;
-    root.dataset.sfmReady = "true";
-    ensureStatus();
-    buildProgress();
-    buildMessage();
-    buildReset();
-    buildHoneypot();
-    initBaseline();
-    bindEvents();
-  }
-
-  document.addEventListener("DOMContentLoaded", initDataForm);
-})();
