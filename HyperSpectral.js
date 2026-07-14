@@ -1563,3 +1563,332 @@
 //   initVideoPlayer();
 //   initPhaseSection();
 // });
+
+function initHeroRotation() {
+  const container = document.querySelector('[data-hero="container"]');
+  if (!container || container.dataset.heroInit === "true") return;
+  container.dataset.heroInit = "true";
+
+  const stages = Array.from(document.querySelectorAll("[data-hero-stage]"));
+  const cards = Array.from(document.querySelectorAll("[data-hero-card]"));
+  const gradientSource = document.querySelector(".text-hero-gradient");
+
+  if (stages.length !== 3 || cards.length !== 4) return;
+
+  const REM = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const STAGE_DURATION = 4000;
+  const MACRO = 1.0;
+  const EASE = "power2.inOut";
+  const PAD_FEATURED = "0.2rem";
+  const PAD_TILE = "0.25rem";
+
+  const layouts = {
+    1: {
+      featured: 1,
+      tiles: { 2: [0.35, 0.3], 3: [0.08, 0.08], 4: [0.5, 0.58] },
+    },
+    2: {
+      featured: 2,
+      tiles: { 1: [0.45, 0.55], 3: [0.25, 0.08], 4: [0.25, 0.58] },
+    },
+    3: {
+      featured: 3,
+      tiles: { 1: [0.05, 0.55], 2: [0.15, 0.08], 4: [0.4, 0.15] },
+    },
+  };
+
+  const gradients = setupGradients(gradientSource);
+  const state = { current: 1, timer: null, tl: null, paused: false };
+  const reduceQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const mobileQuery = window.matchMedia("(max-width: 766px)");
+
+  function setupGradients(source) {
+    if (!source) return null;
+    const text = source.textContent.trim();
+    source.setAttribute("data-hero-gradient", "wrap");
+    source.textContent = "";
+    return [1, 2, 3].map((n) => {
+      const s = document.createElement("span");
+      s.setAttribute("data-hero-gradient", String(n));
+      s.textContent = text;
+      if (n > 1) s.setAttribute("aria-hidden", "true");
+      source.appendChild(s);
+      return s;
+    });
+  }
+
+  function tileSize() {
+    return mobileQuery.matches ? { w: 59, h: 67 } : { w: 80, h: 91 };
+  }
+
+  function featuredSize() {
+    return mobileQuery.matches
+      ? { w: 127, h: 120 }
+      : { w: 15.44 * REM, h: 13.19 * REM };
+  }
+
+  function tilePos(topPct, rightPct) {
+    const r = container.getBoundingClientRect();
+    const s = tileSize();
+    return {
+      top: r.height * topPct,
+      left: r.width - s.w - r.width * rightPct,
+      width: s.w,
+      height: s.h,
+    };
+  }
+
+  function featuredPos() {
+    const r = container.getBoundingClientRect();
+    const f = featuredSize();
+    const offset = mobileQuery.matches ? 12 : 0.81 * REM;
+    const inset = mobileQuery.matches ? 12 : 1.06 * REM;
+    return {
+      top: r.height - f.h - offset,
+      left: inset,
+      width: f.w,
+      height: f.h,
+    };
+  }
+
+  function positionFor(cardNum, stageNum) {
+    const layout = layouts[stageNum];
+    return cardNum === layout.featured
+      ? featuredPos()
+      : tilePos(...layout.tiles[cardNum]);
+  }
+
+  function applyInitialState() {
+    stages.forEach((s, i) => {
+      if (i === 0) {
+        s.setAttribute("data-hero-stage-state", "active");
+        s.removeAttribute("aria-hidden");
+      } else {
+        s.removeAttribute("data-hero-stage-state");
+        s.setAttribute("aria-hidden", "true");
+      }
+    });
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      if (num === layouts[1].featured)
+        card.setAttribute("data-hero-card-state", "featured");
+      else card.removeAttribute("data-hero-card-state");
+    });
+
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      const bg = card.querySelector("[data-hero-card-bg]");
+      const featured = num === layouts[1].featured;
+      if (bg)
+        gsap.set(bg, {
+          clipPath: featured
+            ? "inset(50% round 0.5rem)"
+            : "inset(0% round 0.5rem)",
+        });
+    });
+  }
+
+  function normalize() {
+    const featuredNum = layouts[state.current].featured;
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      const pos = positionFor(num, state.current);
+      gsap.set(card, {
+        top: pos.top,
+        left: pos.left,
+        right: "auto",
+        bottom: "auto",
+        width: pos.width,
+        height: pos.height,
+        paddingBottom: num === featuredNum ? PAD_FEATURED : PAD_TILE,
+      });
+    });
+  }
+
+  function decodeImages() {
+    const imgs = stages.flatMap((s) => Array.from(s.querySelectorAll("img")));
+    const jobs = imgs.map((img) =>
+      img.decode ? img.decode().catch(() => {}) : Promise.resolve(),
+    );
+    const safety = new Promise((res) => setTimeout(res, 1500));
+    return Promise.race([Promise.all(jobs), safety]);
+  }
+
+  function crossfadeStages(tl, fromEl, toEl) {
+    gsap.set(toEl, { autoAlpha: 0 });
+    tl.to(toEl, { autoAlpha: 1, duration: MACRO, ease: EASE }, 0).to(
+      fromEl,
+      { autoAlpha: 0, duration: MACRO, ease: EASE },
+      0,
+    );
+  }
+
+  function rotate(nextNum) {
+    if (state.current === nextNum || state.tl) return;
+
+    const layout = layouts[nextNum];
+    const fromStage = stages.find(
+      (s) => +s.dataset.heroStage === state.current,
+    );
+    const toStage = stages.find((s) => +s.dataset.heroStage === nextNum);
+    const OUT = 0.4;
+    const IN = 0.45;
+    const CLOSED = "inset(50% round 0.5rem)";
+    const OPEN = "inset(0% round 0.5rem)";
+    const curFeatured = layouts[state.current].featured;
+
+    toStage.setAttribute("data-hero-stage-state", "active");
+    toStage.removeAttribute("aria-hidden");
+    gsap.set(toStage, { autoAlpha: 0 });
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        fromStage.removeAttribute("data-hero-stage-state");
+        fromStage.setAttribute("aria-hidden", "true");
+        state.current = nextNum;
+        state.tl = null;
+        schedule();
+      },
+    });
+
+    tl.to(toStage, { autoAlpha: 1, duration: OUT + IN, ease: EASE }, 0).to(
+      fromStage,
+      { autoAlpha: 0, duration: OUT + IN, ease: EASE },
+      0,
+    );
+
+    if (gradients) {
+      gradients.forEach((span, i) => {
+        tl.to(
+          span,
+          {
+            autoAlpha: i + 1 === nextNum ? 1 : 0,
+            duration: OUT + IN,
+            ease: EASE,
+          },
+          0,
+        );
+      });
+    }
+
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      const bg = card.querySelector("[data-hero-card-bg]");
+      const tag = card.querySelector("[data-hero-card-tag]");
+      if (num === curFeatured) {
+        tl.to(card, { autoAlpha: 0, duration: OUT, ease: "power2.inOut" }, 0);
+      } else {
+        tl.to(
+          bg,
+          { clipPath: CLOSED, duration: OUT, ease: "power2.inOut" },
+          0,
+        ).to(tag, { autoAlpha: 0, duration: OUT, ease: "power2.inOut" }, 0);
+      }
+    });
+
+    tl.add(() => {
+      cards.forEach((card) => {
+        const num = +card.dataset.heroCard;
+        const inner = card.querySelector("[data-hero-card-inner]");
+        const tag = card.querySelector("[data-hero-card-tag]");
+        const bg = card.querySelector("[data-hero-card-bg]");
+        const willFeature = num === layout.featured;
+        const pos = positionFor(num, nextNum);
+
+        if (willFeature) card.setAttribute("data-hero-card-state", "featured");
+        else card.removeAttribute("data-hero-card-state");
+
+        gsap.set(card, {
+          top: pos.top,
+          left: pos.left,
+          right: "auto",
+          bottom: "auto",
+          width: pos.width,
+          height: pos.height,
+          paddingBottom: willFeature ? PAD_FEATURED : PAD_TILE,
+          autoAlpha: willFeature ? 0 : 1,
+        });
+        gsap.set(inner, { autoAlpha: willFeature ? 1 : 0 });
+        gsap.set(tag, { autoAlpha: 0 });
+        gsap.set(bg, { clipPath: CLOSED });
+      });
+    }, OUT);
+
+    cards.forEach((card) => {
+      const num = +card.dataset.heroCard;
+      const tag = card.querySelector("[data-hero-card-tag]");
+      const bg = card.querySelector("[data-hero-card-bg]");
+      const willFeature = num === layout.featured;
+      if (willFeature) {
+        tl.to(card, { autoAlpha: 1, duration: IN, ease: "power2.out" }, OUT);
+      } else {
+        tl.to(
+          bg,
+          { clipPath: OPEN, duration: IN, ease: "power2.inOut" },
+          OUT,
+        ).to(tag, { autoAlpha: 1, duration: IN, ease: "power2.out" }, OUT);
+      }
+    });
+
+    state.tl = tl;
+  }
+
+  function nextNum() {
+    return state.current === 3 ? 1 : state.current + 1;
+  }
+
+  function schedule() {
+    clearTimeout(state.timer);
+    if (state.paused || reduceQuery.matches) return;
+    state.timer = setTimeout(() => rotate(nextNum()), STAGE_DURATION);
+  }
+
+  function pause() {
+    if (state.paused) return;
+    state.paused = true;
+    clearTimeout(state.timer);
+    if (state.tl) state.tl.pause();
+  }
+
+  function resume() {
+    if (!state.paused) return;
+    state.paused = false;
+    if (state.tl) state.tl.play();
+    else schedule();
+  }
+
+  function handleResize() {
+    if (state.tl) state.tl.progress(1);
+    normalize();
+  }
+
+  reduceQuery.addEventListener("change", (e) => {
+    if (e.matches) pause();
+    else resume();
+  });
+
+  mobileQuery.addEventListener("change", handleResize);
+
+  container.addEventListener("mouseenter", pause);
+  container.addEventListener("mouseleave", resume);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) pause();
+    else resume();
+  });
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(handleResize, 150);
+  });
+
+  applyInitialState();
+  normalize();
+  decodeImages().then(() => {
+    if (!reduceQuery.matches) schedule();
+  });
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  initHeroRotation();
+});
