@@ -1892,3 +1892,226 @@ function initHeroRotation() {
 window.addEventListener("DOMContentLoaded", () => {
   initHeroRotation();
 });
+
+/*
+  function initNav() {
+    ScrollTrigger.config({ ignoreMobileResize: true });
+    if (window.lenis) window.lenis.on('scroll', ScrollTrigger.update);
+
+    const mm = gsap.matchMedia();
+    const dropdownWrappers = document.querySelectorAll('[data-nav="dropdown-wrapper"]');
+    const dropdownContents = document.querySelectorAll('[data-nav="dropdown-content"]');
+    const dropdownIcons = document.querySelectorAll('[data-nav="dropdown-icon"]');
+    const dropdownBtns = document.querySelectorAll('[data-nav="dropdown-btn"]');
+    const logo = document.querySelector('[data-nav="logo"]');
+    const darkSections = [...document.querySelectorAll('[data-theme="dark"]')];
+    const mobileDarkSections = [...document.querySelectorAll('[data-theme-mobile="dark"]')];
+
+    const LIGHT = '#E2DBD8';
+    const DARK = '#231F20';
+    let menuOpen = false;
+    let currentColor = null;
+
+    function isOnDark() {
+      const rect = logo.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const sections = window.innerWidth <= 990 ? [...darkSections, ...mobileDarkSections] : darkSections;
+      for (const s of sections) {
+        const r = s.getBoundingClientRect();
+        if (mid >= r.top && mid <= r.bottom) return true;
+      }
+      return false;
+    }
+
+    function updateLogo(immediate) {
+      const target = menuOpen ? LIGHT : isOnDark() ? LIGHT : DARK;
+      if (target === currentColor) return;
+      currentColor = target;
+      gsap.to(logo, {
+        color: target,
+        duration: immediate ? 0 : 0.3,
+        ease: 'power2.out',
+        overwrite: true,
+      });
+    }
+
+    ScrollTrigger.create({
+      start: 0,
+      end: 'max',
+      onUpdate: () => updateLogo(false),
+      onRefresh: () => updateLogo(true),
+    });
+
+    updateLogo(true);
+
+    mm.add('(min-width: 991px)', () => {
+      let activeDropdown = null;
+
+      gsap.set([dropdownContents, dropdownIcons], { clearProps: 'all' });
+      dropdownBtns.forEach((btn) => btn.setAttribute('aria-expanded', 'false'));
+
+      function closeDropdown(wrapper, immediate = false) {
+        if (!wrapper) return;
+        const btn = wrapper.querySelector('[data-nav="dropdown-btn"]');
+        const content = wrapper.querySelector('[data-nav="dropdown-content"]');
+        const icon = wrapper.querySelector('[data-nav="dropdown-icon"]');
+
+        btn.setAttribute('aria-expanded', 'false');
+        gsap.killTweensOf([content, icon]);
+
+        const duration = immediate ? 0 : 0.2;
+
+        gsap.to(content, {
+          autoAlpha: 0,
+          y: 10,
+          pointerEvents: 'none',
+          duration: duration,
+          ease: 'power2.in',
+        });
+
+        if (icon) gsap.to(icon, { rotation: 0, duration: duration, ease: 'power2.inOut' });
+        activeDropdown = null;
+      }
+
+      function openDropdown(wrapper) {
+        if (activeDropdown && activeDropdown !== wrapper) {
+          closeDropdown(activeDropdown, true);
+        }
+
+        const btn = wrapper.querySelector('[data-nav="dropdown-btn"]');
+        const content = wrapper.querySelector('[data-nav="dropdown-content"]');
+        const icon = wrapper.querySelector('[data-nav="dropdown-icon"]');
+
+        btn.setAttribute('aria-expanded', 'true');
+        gsap.killTweensOf([content, icon]);
+
+        gsap.to(content, {
+          autoAlpha: 1,
+          y: 0,
+          pointerEvents: 'auto',
+          duration: 0.4,
+          ease: 'power3.out',
+        });
+
+        if (icon) gsap.to(icon, { rotation: 180, duration: 0.4, ease: 'power3.out' });
+        activeDropdown = wrapper;
+      }
+
+      function handleDropdownClick(e) {
+        const btn = e.target.closest('[data-nav="dropdown-btn"]');
+        if (!btn) return;
+        const wrapper = btn.closest('[data-nav="dropdown-wrapper"]');
+        btn.getAttribute('aria-expanded') === 'true' ? closeDropdown(wrapper) : openDropdown(wrapper);
+      }
+
+      function handleOutsideClick(e) {
+        if (activeDropdown && !activeDropdown.contains(e.target)) closeDropdown(activeDropdown);
+      }
+
+      function handleEscapeKey(e) {
+        if (e.key === 'Escape' && activeDropdown) {
+          const btn = activeDropdown.querySelector('[data-nav="dropdown-btn"]');
+          closeDropdown(activeDropdown);
+          btn.focus();
+        }
+      }
+
+      dropdownWrappers.forEach((wrapper) => wrapper.addEventListener('click', handleDropdownClick));
+      document.addEventListener('click', handleOutsideClick);
+      document.addEventListener('keydown', handleEscapeKey);
+
+      return () => {
+        dropdownWrappers.forEach((wrapper) => wrapper.removeEventListener('click', handleDropdownClick));
+        document.removeEventListener('click', handleOutsideClick);
+        document.removeEventListener('keydown', handleEscapeKey);
+
+        gsap.set([dropdownContents, dropdownIcons], { clearProps: 'all' });
+        dropdownBtns.forEach((btn) => btn.setAttribute('aria-expanded', 'false'));
+      };
+    });
+
+    mm.add('(max-width: 990px)', () => {
+      const hamburger = document.querySelector('[data-nav="hamburger-btn"]');
+      const menuWrap = document.querySelector('[data-nav="menu-wrap"]');
+      const line1 = document.querySelector('[data-nav="line-1"]');
+      const line2 = document.querySelector('[data-nav="line-2"]');
+      const line3 = document.querySelector('[data-nav="line-3"]');
+      const navItems = document.querySelectorAll('[data-nav-item]');
+
+      gsap.set(dropdownContents, { clearProps: 'all', height: 0, paddingBlock: 0 });
+      gsap.set(dropdownIcons, { clearProps: 'all' });
+      dropdownBtns.forEach((btn) => btn.setAttribute('aria-expanded', 'false'));
+
+      const tl = gsap.timeline({ paused: true, reversed: true }).fromTo(menuWrap, { x: '-100%', autoAlpha: 0 }, { x: '0%', autoAlpha: 1, duration: 0.6, ease: 'expo.inOut' }).fromTo(navItems, { x: -20, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.4, stagger: 0.05, ease: 'power2.out' }, '-=0.4').to(line1, { y: 6, rotation: 45, duration: 0.3, transformOrigin: '50% 50%', ease: 'power2.inOut' }, 0).to(line2, { autoAlpha: 0, duration: 0.2 }, 0).to(line3, { y: -6, rotation: -45, duration: 0.3, transformOrigin: '50% 50%', ease: 'power2.inOut' }, 0);
+
+      function toggleMenu() {
+        menuOpen = !menuOpen;
+        hamburger.setAttribute('aria-expanded', menuOpen);
+
+        if (!menuOpen) {
+          dropdownWrappers.forEach((wrapper) => {
+            const btn = wrapper.querySelector('[data-nav="dropdown-btn"]');
+            const content = wrapper.querySelector('[data-nav="dropdown-content"]');
+            const icon = wrapper.querySelector('[data-nav="dropdown-icon"]');
+            btn.setAttribute('aria-expanded', 'false');
+            gsap.to(content, { height: 0, autoAlpha: 0, paddingBlock: 0, pointerEvents: 'none', duration: 0.3 });
+            if (icon) gsap.to(icon, { rotation: 0, duration: 0.3 });
+          });
+        }
+
+        updateLogo(false);
+        menuOpen ? tl.play() : tl.reverse();
+      }
+
+      function handleMobileAccordion(e) {
+        const btn = e.target.closest('[data-nav="dropdown-btn"]');
+        if (!btn) return;
+
+        const wrapper = btn.closest('[data-nav="dropdown-wrapper"]');
+        const content = wrapper.querySelector('[data-nav="dropdown-content"]');
+        const icon = wrapper.querySelector('[data-nav="dropdown-icon"]');
+        const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+
+        dropdownWrappers.forEach((otherWrapper) => {
+          if (otherWrapper !== wrapper) {
+            const otherBtn = otherWrapper.querySelector('[data-nav="dropdown-btn"]');
+            const otherContent = otherWrapper.querySelector('[data-nav="dropdown-content"]');
+            const otherIcon = otherWrapper.querySelector('[data-nav="dropdown-icon"]');
+
+            if (otherBtn.getAttribute('aria-expanded') === 'true') {
+              otherBtn.setAttribute('aria-expanded', 'false');
+              gsap.to(otherContent, { height: 0, autoAlpha: 0, paddingBlock: 0, pointerEvents: 'none', duration: 0.3, ease: 'power2.inOut' });
+              if (otherIcon) gsap.to(otherIcon, { rotation: 0, duration: 0.3 });
+            }
+          }
+        });
+
+        if (isExpanded) {
+          btn.setAttribute('aria-expanded', 'false');
+          gsap.to(content, { height: 0, autoAlpha: 0, paddingBlock: 0, pointerEvents: 'none', duration: 0.3, ease: 'power2.inOut' });
+          if (icon) gsap.to(icon, { rotation: 0, duration: 0.3 });
+        } else {
+          btn.setAttribute('aria-expanded', 'true');
+          gsap.to(content, { height: 'auto', autoAlpha: 1, paddingBlock: '0.5rem', pointerEvents: 'auto', duration: 0.3, ease: 'power2.inOut' });
+          if (icon) gsap.to(icon, { rotation: 180, duration: 0.3 });
+        }
+      }
+
+      hamburger.addEventListener('click', toggleMenu);
+      dropdownWrappers.forEach((wrapper) => wrapper.addEventListener('click', handleMobileAccordion));
+
+      return () => {
+        hamburger.removeEventListener('click', toggleMenu);
+        dropdownWrappers.forEach((wrapper) => wrapper.removeEventListener('click', handleMobileAccordion));
+
+        menuOpen = false;
+        updateLogo(true);
+        tl.kill();
+        gsap.set([menuWrap, line1, line2, line3, navItems, dropdownContents, dropdownIcons], { clearProps: 'all' });
+        dropdownBtns.forEach((btn) => btn.setAttribute('aria-expanded', 'false'));
+      };
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', initNav);
+  */
