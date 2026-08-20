@@ -974,16 +974,27 @@ function initProcessSection() {
   }
 
   function resetGraphs() {
+    let allFound = true;
     rows.forEach((row) => {
       const tl = getTimeline(row);
-      if (tl && tl.progress() > 0 && tl.progress() < 1) {
+      if (tl) {
         tl.pause(0);
+      } else {
+        allFound = false;
       }
     });
+    return allFound;
   }
 
-  resetGraphs();
-  setTimeout(resetGraphs, 50);
+  if (!resetGraphs()) {
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (resetGraphs() || attempts > 20) {
+        clearInterval(interval);
+      }
+    }, 20);
+  }
 
   const mm = gsap.matchMedia();
 
