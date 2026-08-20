@@ -998,7 +998,6 @@ function initProcessSection() {
 
   const mm = gsap.matchMedia();
 
-  // Desktop Setup
   mm.add("(min-width: 768px)", () => {
     if (reducedMotion) {
       gsap.set(rows, { autoAlpha: 1 });
@@ -1018,17 +1017,21 @@ function initProcessSection() {
         pin: true,
         scrub: 1,
         snap: {
-          snapTo: [0, 0.5, 1],
-          duration: { min: 0.2, max: 0.6 },
-          delay: 0.05,
+          snapTo: (p) => {
+            if (p < 0.25) return 0;
+            if (p > 0.75) return 1;
+            return 0.5;
+          },
+          duration: { min: 0.3, max: 0.6 },
+          delay: 0.15,
           ease: "power2.inOut",
         },
         onUpdate: (self) => {
           const p = self.progress;
           let active = 0;
 
-          if (p >= 0.7) active = 2;
-          else if (p >= 0.3) active = 1;
+          if (p >= 0.75) active = 2;
+          else if (p >= 0.25) active = 1;
 
           if (active !== lastActive) {
             const direction = active > lastActive ? 1 : -1;
@@ -1051,11 +1054,11 @@ function initProcessSection() {
     });
 
     tl.to({}, { duration: 2 })
-      .to(rows[0], { autoAlpha: 0, duration: 1 })
-      .to(rows[1], { autoAlpha: 1, duration: 1 })
+      .to(rows[0], { autoAlpha: 0, duration: 1.5 })
+      .to(rows[1], { autoAlpha: 1, duration: 1.5 })
       .to({}, { duration: 2 })
-      .to(rows[1], { autoAlpha: 0, duration: 1 })
-      .to(rows[2], { autoAlpha: 1, duration: 1 })
+      .to(rows[1], { autoAlpha: 0, duration: 1.5 })
+      .to(rows[2], { autoAlpha: 1, duration: 1.5 })
       .to({}, { duration: 2 });
 
     return () => {
@@ -1063,7 +1066,6 @@ function initProcessSection() {
     };
   });
 
-  // Mobile Setup
   mm.add("(max-width: 767px)", () => {
     gsap.set(rows, { autoAlpha: 1, gridArea: "auto", pointerEvents: "auto" });
     gsap.set(section, { height: "auto", overflow: "visible" });
