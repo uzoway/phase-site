@@ -1,0 +1,13 @@
+{
+  "folders": [
+	{
+		"name": "Custom code",
+		"path": "."
+	},
+	{
+		"name": "Compressed",
+		"path": "../../Downloads/Hero/Compressed"
+	}
+],
+  "settings": {}
+}
