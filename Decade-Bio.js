@@ -266,6 +266,358 @@ function initMobileNavigation() {
   handleViewportChange();
 }
 
+function getLogoElements() {
+  const root = document.querySelector('[data-logo="root"]');
+  const mark = document.querySelector('[data-logo="mark"]');
+  const text = document.querySelector('[data-logo="text"]');
+
+  if (!root || !mark || !text) return null;
+
+  return { root, mark, text };
+}
+
+function getLogoEase() {
+  if (typeof CustomEase === "undefined") {
+    return "power3.out";
+  }
+
+  gsap.registerPlugin(CustomEase);
+  CustomEase.create("logo-ease-out-quint", "0.23,1,0.32,1");
+
+  return "logo-ease-out-quint";
+}
+
+/* Type 1 */
+function initLogoDirectionalRotation() {
+  const logo = getLogoElements();
+
+  if (!logo) return;
+
+  const { mark } = logo;
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  if (reducedMotion.matches) return;
+
+  const ease = getLogoEase();
+  const rotateTo = gsap.quickTo(mark, "rotation", {
+    duration: 0.35,
+    ease: ease,
+  });
+
+  let lastScrollY = window.scrollY;
+  let rotation = 0;
+  let ticking = false;
+
+  function updateRotation() {
+    const currentScrollY = window.scrollY;
+    const delta = currentScrollY - lastScrollY;
+
+    lastScrollY = currentScrollY;
+    ticking = false;
+
+    if (Math.abs(delta) < 1) return;
+
+    const direction = delta > 0 ? 1 : -1;
+    const amount = gsap.utils.clamp(0.35, 5, Math.abs(delta) * 0.16);
+
+    rotation += direction * amount;
+
+    rotateTo(rotation);
+  }
+
+  function handleScroll() {
+    if (ticking) return;
+
+    ticking = true;
+    requestAnimationFrame(updateRotation);
+  }
+
+  window.addEventListener("scroll", handleScroll, {
+    passive: true,
+  });
+}
+
+/* Type 2 */
+// function initLogoDirectionalLean() {
+//   const logo = getLogoElements();
+
+//   if (!logo) return;
+
+//   const { mark, text } = logo;
+//   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+//   if (reducedMotion.matches) return;
+
+//   const ease = getLogoEase();
+
+//   let lastScrollY = window.scrollY;
+//   let ticking = false;
+//   let settleAnimation = null;
+
+//   function settleLogo() {
+//     gsap.to(mark, {
+//       rotation: 0,
+//       duration: 0.65,
+//       ease: ease,
+//       overwrite: true,
+//     });
+
+//     gsap.to(text, {
+//       x: 0,
+//       duration: 0.65,
+//       ease: ease,
+//       overwrite: true,
+//     });
+//   }
+
+//   function updateLogo() {
+//     const currentScrollY = window.scrollY;
+//     const delta = currentScrollY - lastScrollY;
+
+//     lastScrollY = currentScrollY;
+//     ticking = false;
+
+//     if (Math.abs(delta) < 1) return;
+
+//     const direction = delta > 0 ? 1 : -1;
+
+//     gsap.to(mark, {
+//       rotation: direction * 22,
+//       duration: 0.35,
+//       ease: ease,
+//       overwrite: true,
+//     });
+
+//     gsap.to(text, {
+//       x: direction * -3,
+//       duration: 0.35,
+//       ease: ease,
+//       overwrite: true,
+//     });
+
+//     settleAnimation?.kill();
+
+//     settleAnimation = gsap.delayedCall(0.14, settleLogo);
+//   }
+
+//   function handleScroll() {
+//     if (ticking) return;
+
+//     ticking = true;
+//     requestAnimationFrame(updateLogo);
+//   }
+
+//   window.addEventListener("scroll", handleScroll, {
+//     passive: true,
+//   });
+// }
+
+/* Type 3 */
+// function initLogoScrollState() {
+//   const logo = getLogoElements();
+
+//   if (!logo) return;
+
+//   const { text } = logo;
+
+//   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+//   const desktop = window.matchMedia("(min-width: 768px)");
+
+//   const ease = getLogoEase();
+
+//   let isCollapsed = false;
+//   let ticking = false;
+
+//   function showWordmark(immediate = false) {
+//     if (!isCollapsed && !immediate) return;
+
+//     isCollapsed = false;
+
+//     if (immediate) {
+//       gsap.set(text, {
+//         clearProps: "opacity,visibility,transform",
+//       });
+
+//       return;
+//     }
+
+//     gsap.to(text, {
+//       autoAlpha: 1,
+//       x: 0,
+//       scaleX: 1,
+//       duration: 0.5,
+//       ease: ease,
+//       overwrite: true,
+//     });
+//   }
+
+//   function hideWordmark() {
+//     if (isCollapsed) return;
+
+//     isCollapsed = true;
+
+//     gsap.to(text, {
+//       autoAlpha: 0,
+//       x: -10,
+//       scaleX: 0.94,
+//       duration: 0.45,
+//       ease: ease,
+//       overwrite: true,
+//     });
+//   }
+
+//   function updateLogoState() {
+//     ticking = false;
+
+//     if (!desktop.matches || reducedMotion.matches) {
+//       showWordmark(true);
+//       return;
+//     }
+
+//     if (!isCollapsed && window.scrollY > 120) {
+//       hideWordmark();
+//       return;
+//     }
+
+//     if (isCollapsed && window.scrollY < 64) {
+//       showWordmark();
+//     }
+//   }
+
+//   function handleScroll() {
+//     if (ticking) return;
+
+//     ticking = true;
+//     requestAnimationFrame(updateLogoState);
+//   }
+
+//   function handlePreferenceChange() {
+//     updateLogoState();
+//   }
+
+//   window.addEventListener("scroll", handleScroll, {
+//     passive: true,
+//   });
+
+//   desktop.addEventListener("change", handlePreferenceChange);
+//   reducedMotion.addEventListener("change", handlePreferenceChange);
+
+//   updateLogoState();
+// }
+
+/* Type 4*/
+function initLogoScrollTransform() {
+  const logo = getLogoElements();
+
+  if (!logo) return;
+
+  const { mark, text } = logo;
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  const desktop = window.matchMedia("(min-width: 768px)");
+
+  const ease = getLogoEase();
+
+  let isCollapsed = false;
+  let ticking = false;
+
+  function showFullLogo(immediate = false) {
+    if (!isCollapsed && !immediate) return;
+
+    isCollapsed = false;
+
+    if (immediate) {
+      gsap.set([mark, text], {
+        clearProps: "opacity,visibility,transform",
+      });
+
+      return;
+    }
+
+    gsap.to(mark, {
+      rotation: 0,
+      duration: 0.65,
+      ease: ease,
+      overwrite: true,
+    });
+
+    gsap.to(text, {
+      autoAlpha: 1,
+      x: 0,
+      scaleX: 1,
+      duration: 0.55,
+      ease: ease,
+      overwrite: true,
+    });
+  }
+
+  function showMarkOnly() {
+    if (isCollapsed) return;
+
+    isCollapsed = true;
+
+    gsap.to(mark, {
+      rotation: 28,
+      duration: 0.65,
+      ease: ease,
+      overwrite: true,
+    });
+
+    gsap.to(text, {
+      autoAlpha: 0,
+      x: -10,
+      scaleX: 0.94,
+      duration: 0.45,
+      ease: ease,
+      overwrite: true,
+    });
+  }
+
+  function updateLogoState() {
+    ticking = false;
+
+    if (!desktop.matches || reducedMotion.matches) {
+      showFullLogo(true);
+      return;
+    }
+
+    if (!isCollapsed && window.scrollY > 120) {
+      showMarkOnly();
+      return;
+    }
+
+    if (isCollapsed && window.scrollY < 64) {
+      showFullLogo();
+    }
+  }
+
+  function handleScroll() {
+    if (ticking) return;
+
+    ticking = true;
+    requestAnimationFrame(updateLogoState);
+  }
+
+  function handlePreferenceChange() {
+    updateLogoState();
+  }
+
+  window.addEventListener("scroll", handleScroll, {
+    passive: true,
+  });
+
+  desktop.addEventListener("change", handlePreferenceChange);
+  reducedMotion.addEventListener("change", handlePreferenceChange);
+
+  updateLogoState();
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   initMobileNavigation();
+  initLogoDirectionalRotation();
+  //   initLogoDirectionalLean();
+  //   initLogoScrollState();
+  //   initLogoScrollTransform();
 });
