@@ -266,6 +266,7 @@ function initMobileNavigation() {
   handleViewportChange();
 }
 
+/* Logo subtle scroll interaction */
 function getLogoElements() {
   const root = document.querySelector('[data-logo="root"]');
   const mark = document.querySelector('[data-logo="mark"]');
@@ -614,10 +615,93 @@ function initLogoScrollTransform() {
   updateLogoState();
 }
 
+/* Approach section scroll interaction */
+function initApproachScroll() {
+  const section = document.querySelector('[data-approach="section"]');
+  const contentColumn = document.querySelector(
+    '[data-approach="content-column"]',
+  );
+
+  if (!section || !contentColumn) return;
+
+  const blocks = contentColumn.querySelectorAll('[data-approach="block"]');
+
+  if (blocks.length < 2) return;
+
+  gsap.registerPlugin(ScrollTrigger);
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  let tween = null;
+
+  function getScrollDistance() {
+    return Math.max(0, contentColumn.scrollHeight - contentColumn.clientHeight);
+  }
+
+  function createScrollAnimation() {
+    if (reducedMotion.matches) return;
+
+    const scrollDistance = getScrollDistance();
+
+    if (scrollDistance <= 0) return;
+
+    tween = gsap.to(blocks, {
+      y: function () {
+        return -getScrollDistance();
+      },
+      ease: "none",
+      force3D: true,
+      scrollTrigger: {
+        trigger: section,
+        start: "top top",
+        end: function () {
+          return "+=" + getScrollDistance();
+        },
+        pin: section,
+        pinSpacing: true,
+        scrub: true,
+        anticipatePin: 1,
+        invalidateOnRefresh: true,
+      },
+    });
+  }
+
+  function destroyScrollAnimation() {
+    tween?.scrollTrigger?.kill();
+    tween?.kill();
+
+    tween = null;
+
+    gsap.set(blocks, {
+      clearProps: "transform",
+    });
+  }
+
+  function handleMotionPreferenceChange() {
+    destroyScrollAnimation();
+
+    if (!reducedMotion.matches) {
+      createScrollAnimation();
+      ScrollTrigger.refresh();
+    }
+  }
+
+  reducedMotion.addEventListener("change", handleMotionPreferenceChange);
+
+  createScrollAnimation();
+
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(function () {
+      ScrollTrigger.refresh();
+    });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   initMobileNavigation();
   initLogoDirectionalRotation();
   //   initLogoDirectionalLean();
   //   initLogoScrollState();
   //   initLogoScrollTransform();
+  initApproachScroll();
 });
