@@ -392,6 +392,151 @@ function initApproachScroll() {
 }
 
 /* Process scroll interaction */
+// function initProcessSection() {
+//   const section = document.querySelector("[data-process-section]");
+//   if (!section || typeof gsap === "undefined") return;
+
+//   const stage = section.querySelector("[data-process-stage]");
+//   const rows = section.querySelectorAll("[data-process-row]");
+
+//   if (!stage || !rows.length) return;
+
+//   const reducedMotion = window.matchMedia(
+//     "(prefers-reduced-motion: reduce)",
+//   ).matches;
+
+//   function getTimeline(row) {
+//     if (!row) return null;
+//     const visual = row.querySelector("[data-pv]");
+//     return visual
+//       ? visual.__decodeTimeline ||
+//           visual.__scatterTimeline ||
+//           visual.__lineTimeline
+//       : null;
+//   }
+
+//   function resetGraphs() {
+//     let allFound = true;
+//     rows.forEach((row) => {
+//       const tl = getTimeline(row);
+//       if (tl) {
+//         tl.pause(0);
+//       } else {
+//         allFound = false;
+//       }
+//     });
+//     return allFound;
+//   }
+
+//   if (!resetGraphs()) {
+//     let attempts = 0;
+//     const interval = setInterval(() => {
+//       attempts++;
+//       if (resetGraphs() || attempts > 20) {
+//         clearInterval(interval);
+//       }
+//     }, 20);
+//   }
+
+//   const mm = gsap.matchMedia();
+
+//   mm.add("(min-width: 768px)", () => {
+//     if (reducedMotion) {
+//       gsap.set(rows, { autoAlpha: 1 });
+//       return;
+//     }
+
+//     gsap.set(rows, { autoAlpha: 0, zIndex: 0, pointerEvents: "none" });
+//     gsap.set(rows[0], { autoAlpha: 1, zIndex: 1, pointerEvents: "auto" });
+
+//     let lastActive = -1;
+
+//     const tl = gsap.timeline({
+//       scrollTrigger: {
+//         trigger: section,
+//         start: "top top",
+//         end: () => `+=${window.innerHeight * 4}`,
+//         pin: true,
+//         scrub: 1,
+//         snap: {
+//           snapTo: (p) => {
+//             if (p < 0.25) return 0;
+//             if (p > 0.75) return 1;
+//             return 0.5;
+//           },
+//           duration: { min: 0.3, max: 0.6 },
+//           delay: 0.15,
+//           ease: "power2.inOut",
+//         },
+//         onUpdate: (self) => {
+//           const p = self.progress;
+//           let active = 0;
+
+//           if (p >= 0.75) active = 2;
+//           else if (p >= 0.25) active = 1;
+
+//           if (active !== lastActive) {
+//             const direction = active > lastActive ? 1 : -1;
+
+//             if (direction === -1 && lastActive >= 0) {
+//               getTimeline(rows[lastActive])?.reverse();
+//             }
+
+//             getTimeline(rows[active])?.restart();
+
+//             rows.forEach((r, i) => {
+//               r.style.pointerEvents = i === active ? "auto" : "none";
+//               r.style.zIndex = i === active ? 1 : 0;
+//             });
+
+//             lastActive = active;
+//           }
+//         },
+//       },
+//     });
+
+//     tl.to({}, { duration: 2 })
+//       .to(rows[0], { autoAlpha: 0, duration: 1.5 })
+//       .to(rows[1], { autoAlpha: 1, duration: 1.5 })
+//       .to({}, { duration: 2 })
+//       .to(rows[1], { autoAlpha: 0, duration: 1.5 })
+//       .to(rows[2], { autoAlpha: 1, duration: 1.5 })
+//       .to({}, { duration: 2 });
+
+//     return () => {
+//       gsap.set(rows, { clearProps: "all" });
+//     };
+//   });
+
+//   mm.add("(max-width: 767px)", () => {
+//     gsap.set(rows, { autoAlpha: 1, gridArea: "auto", pointerEvents: "auto" });
+//     gsap.set(section, { height: "auto", overflow: "visible" });
+
+//     if (reducedMotion) return;
+
+//     const triggers = [];
+
+//     rows.forEach((row) => {
+//       const visualWrap = row.querySelector("[data-process-visual-wrap]");
+
+//       const trigger = ScrollTrigger.create({
+//         trigger: visualWrap,
+//         start: "top 60%",
+//         onEnter: () => getTimeline(row)?.restart(),
+//         onEnterBack: () => getTimeline(row)?.restart(),
+//       });
+
+//       triggers.push(trigger);
+//     });
+
+//     return () => {
+//       triggers.forEach((t) => t.kill());
+//       gsap.set(rows, { clearProps: "all" });
+//       gsap.set(section, { clearProps: "all" });
+//     };
+//   });
+// }
+
 function initProcessSection() {
   const section = document.querySelector("[data-process-section]");
   if (!section || typeof gsap === "undefined") return;
@@ -446,71 +591,104 @@ function initProcessSection() {
       return;
     }
 
-    gsap.set(rows, { autoAlpha: 0, zIndex: 0, pointerEvents: "none" });
-    gsap.set(rows[0], { autoAlpha: 1, zIndex: 1, pointerEvents: "auto" });
+    gsap.set(rows, { autoAlpha: 1 });
+    gsap.set(stage, { position: "relative" });
 
-    let lastActive = -1;
+    const rightTrack = document.createElement("div");
+    gsap.set(rightTrack, {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      width: "50%",
+      height: "100%",
+      pointerEvents: "none",
+      zIndex: 5,
+    });
+    stage.appendChild(rightTrack);
 
-    const tl = gsap.timeline({
-      scrollTrigger: {
-        trigger: section,
-        start: "top top",
-        end: () => `+=${window.innerHeight * 4}`,
-        pin: true,
-        scrub: 1,
-        snap: {
-          snapTo: (p) => {
-            if (p < 0.25) return 0;
-            if (p > 0.75) return 1;
-            return 0.5;
-          },
-          duration: { min: 0.3, max: 0.6 },
-          delay: 0.15,
-          ease: "power2.inOut",
-        },
-        onUpdate: (self) => {
-          const p = self.progress;
-          let active = 0;
+    const stickyFrame = document.createElement("div");
+    gsap.set(stickyFrame, {
+      height: "100vh",
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      pointerEvents: "auto",
+    });
+    rightTrack.appendChild(stickyFrame);
 
-          if (p >= 0.75) active = 2;
-          else if (p >= 0.25) active = 1;
+    const visuals = [];
+    rows.forEach((row, i) => {
+      const vWrap = row.querySelector("[data-process-visual-wrap]");
+      visuals.push(vWrap);
+      stickyFrame.appendChild(vWrap);
 
-          if (active !== lastActive) {
-            const direction = active > lastActive ? 1 : -1;
-
-            if (direction === -1 && lastActive >= 0) {
-              getTimeline(rows[lastActive])?.reverse();
-            }
-
-            getTimeline(rows[active])?.restart();
-
-            rows.forEach((r, i) => {
-              r.style.pointerEvents = i === active ? "auto" : "none";
-              r.style.zIndex = i === active ? 1 : 0;
-            });
-
-            lastActive = active;
-          }
-        },
-      },
+      gsap.set(vWrap, {
+        position: "absolute",
+        autoAlpha: i === 0 ? 1 : 0,
+        width: "100%",
+      });
     });
 
-    tl.to({}, { duration: 2 })
-      .to(rows[0], { autoAlpha: 0, duration: 1.5 })
-      .to(rows[1], { autoAlpha: 1, duration: 1.5 })
-      .to({}, { duration: 2 })
-      .to(rows[1], { autoAlpha: 0, duration: 1.5 })
-      .to(rows[2], { autoAlpha: 1, duration: 1.5 })
-      .to({}, { duration: 2 });
+    const pinTrigger = ScrollTrigger.create({
+      trigger: stage,
+      start: "top top",
+      end: "bottom bottom",
+      pin: stickyFrame,
+      pinSpacing: false,
+    });
+
+    let lastActive = 0;
+
+    setTimeout(() => {
+      getTimeline(rows[0])?.restart();
+    }, 100);
+
+    const triggers = [];
+
+    function transitionTo(index, direction) {
+      if (index === lastActive) return;
+
+      const oldVisual = visuals[lastActive];
+      const newVisual = visuals[index];
+
+      if (direction === -1) {
+        getTimeline(rows[lastActive])?.reverse();
+      }
+      getTimeline(rows[index])?.restart();
+
+      gsap.to(oldVisual, { autoAlpha: 0, duration: 0.6, ease: "power2.inOut" });
+      gsap.to(newVisual, { autoAlpha: 1, duration: 0.6, ease: "power2.inOut" });
+
+      lastActive = index;
+    }
+
+    rows.forEach((row, i) => {
+      const trigger = ScrollTrigger.create({
+        trigger: row,
+        start: "top 50%",
+        end: "bottom 50%",
+        onEnter: () => transitionTo(i, 1),
+        onEnterBack: () => transitionTo(i, -1),
+      });
+      triggers.push(trigger);
+    });
 
     return () => {
+      pinTrigger.kill();
+      triggers.forEach((t) => t.kill());
+      rows.forEach((row, i) => {
+        row.appendChild(visuals[i]);
+        gsap.set(visuals[i], { clearProps: "all" });
+      });
       gsap.set(rows, { clearProps: "all" });
+      gsap.set(stage, { clearProps: "all" });
+      rightTrack.remove();
     };
   });
 
   mm.add("(max-width: 767px)", () => {
-    gsap.set(rows, { autoAlpha: 1, gridArea: "auto", pointerEvents: "auto" });
-    gsap.set(section, { height: "auto", overflow: "visible" });
+    gsap.set(rows, { autoAlpha: 1, pointerEvents: "auto" });
 
     if (reducedMotion) return;
 
@@ -532,7 +710,6 @@ function initProcessSection() {
     return () => {
       triggers.forEach((t) => t.kill());
       gsap.set(rows, { clearProps: "all" });
-      gsap.set(section, { clearProps: "all" });
     };
   });
 }
