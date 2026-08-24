@@ -549,10 +549,10 @@ function initProcessSection() {
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
+  const graphs = Array.from(rows).map((row) => row.querySelector("[data-pv]"));
 
-  function getTimeline(row) {
-    if (!row) return null;
-    const visual = row.querySelector("[data-pv]");
+  function getTimeline(index) {
+    const visual = graphs[index];
     return visual
       ? visual.__decodeTimeline ||
           visual.__scatterTimeline ||
@@ -562,8 +562,8 @@ function initProcessSection() {
 
   function resetGraphs() {
     let allFound = true;
-    rows.forEach((row) => {
-      const tl = getTimeline(row);
+    graphs.forEach((_, i) => {
+      const tl = getTimeline(i);
       if (tl) {
         tl.pause(0);
       } else {
@@ -577,9 +577,7 @@ function initProcessSection() {
     let attempts = 0;
     const interval = setInterval(() => {
       attempts++;
-      if (resetGraphs() || attempts > 20) {
-        clearInterval(interval);
-      }
+      if (resetGraphs() || attempts > 20) clearInterval(interval);
     }, 20);
   }
 
@@ -638,12 +636,7 @@ function initProcessSection() {
       pinSpacing: false,
     });
 
-    let lastActive = 0;
-
-    setTimeout(() => {
-      getTimeline(rows[0])?.restart();
-    }, 100);
-
+    let lastActive = -1;
     const triggers = [];
 
     function transitionTo(index, direction) {
@@ -652,22 +645,35 @@ function initProcessSection() {
       const oldVisual = visuals[lastActive];
       const newVisual = visuals[index];
 
-      if (direction === -1) {
-        getTimeline(rows[lastActive])?.reverse();
+      if (direction === -1 && lastActive >= 0) {
+        getTimeline(lastActive)?.reverse();
       }
-      getTimeline(rows[index])?.restart();
 
-      gsap.to(oldVisual, { autoAlpha: 0, duration: 0.6, ease: "power2.inOut" });
-      gsap.to(newVisual, { autoAlpha: 1, duration: 0.6, ease: "power2.inOut" });
+      getTimeline(index)?.restart();
+
+      if (oldVisual)
+        gsap.to(oldVisual, {
+          autoAlpha: 0,
+          duration: 0.6,
+          ease: "power2.inOut",
+        });
+      if (newVisual)
+        gsap.to(newVisual, {
+          autoAlpha: 1,
+          duration: 0.6,
+          ease: "power2.inOut",
+        });
 
       lastActive = index;
     }
 
     rows.forEach((row, i) => {
+      const leftWrap =
+        row.querySelector("[data-process-left]") ||
+        row.querySelector(".process_left-wrap");
       const trigger = ScrollTrigger.create({
-        trigger: row,
-        start: "top 50%",
-        end: "bottom 50%",
+        trigger: leftWrap,
+        start: "center center",
         onEnter: () => transitionTo(i, 1),
         onEnterBack: () => transitionTo(i, -1),
       });
@@ -694,16 +700,14 @@ function initProcessSection() {
 
     const triggers = [];
 
-    rows.forEach((row) => {
+    rows.forEach((row, i) => {
       const visualWrap = row.querySelector("[data-process-visual-wrap]");
-
       const trigger = ScrollTrigger.create({
         trigger: visualWrap,
         start: "top 60%",
-        onEnter: () => getTimeline(row)?.restart(),
-        onEnterBack: () => getTimeline(row)?.restart(),
+        onEnter: () => getTimeline(i)?.restart(),
+        onEnterBack: () => getTimeline(i)?.restart(),
       });
-
       triggers.push(trigger);
     });
 
