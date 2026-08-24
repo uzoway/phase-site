@@ -392,151 +392,6 @@ function initApproachScroll() {
 }
 
 /* Process scroll interaction */
-// function initProcessSection() {
-//   const section = document.querySelector("[data-process-section]");
-//   if (!section || typeof gsap === "undefined") return;
-
-//   const stage = section.querySelector("[data-process-stage]");
-//   const rows = section.querySelectorAll("[data-process-row]");
-
-//   if (!stage || !rows.length) return;
-
-//   const reducedMotion = window.matchMedia(
-//     "(prefers-reduced-motion: reduce)",
-//   ).matches;
-
-//   function getTimeline(row) {
-//     if (!row) return null;
-//     const visual = row.querySelector("[data-pv]");
-//     return visual
-//       ? visual.__decodeTimeline ||
-//           visual.__scatterTimeline ||
-//           visual.__lineTimeline
-//       : null;
-//   }
-
-//   function resetGraphs() {
-//     let allFound = true;
-//     rows.forEach((row) => {
-//       const tl = getTimeline(row);
-//       if (tl) {
-//         tl.pause(0);
-//       } else {
-//         allFound = false;
-//       }
-//     });
-//     return allFound;
-//   }
-
-//   if (!resetGraphs()) {
-//     let attempts = 0;
-//     const interval = setInterval(() => {
-//       attempts++;
-//       if (resetGraphs() || attempts > 20) {
-//         clearInterval(interval);
-//       }
-//     }, 20);
-//   }
-
-//   const mm = gsap.matchMedia();
-
-//   mm.add("(min-width: 768px)", () => {
-//     if (reducedMotion) {
-//       gsap.set(rows, { autoAlpha: 1 });
-//       return;
-//     }
-
-//     gsap.set(rows, { autoAlpha: 0, zIndex: 0, pointerEvents: "none" });
-//     gsap.set(rows[0], { autoAlpha: 1, zIndex: 1, pointerEvents: "auto" });
-
-//     let lastActive = -1;
-
-//     const tl = gsap.timeline({
-//       scrollTrigger: {
-//         trigger: section,
-//         start: "top top",
-//         end: () => `+=${window.innerHeight * 4}`,
-//         pin: true,
-//         scrub: 1,
-//         snap: {
-//           snapTo: (p) => {
-//             if (p < 0.25) return 0;
-//             if (p > 0.75) return 1;
-//             return 0.5;
-//           },
-//           duration: { min: 0.3, max: 0.6 },
-//           delay: 0.15,
-//           ease: "power2.inOut",
-//         },
-//         onUpdate: (self) => {
-//           const p = self.progress;
-//           let active = 0;
-
-//           if (p >= 0.75) active = 2;
-//           else if (p >= 0.25) active = 1;
-
-//           if (active !== lastActive) {
-//             const direction = active > lastActive ? 1 : -1;
-
-//             if (direction === -1 && lastActive >= 0) {
-//               getTimeline(rows[lastActive])?.reverse();
-//             }
-
-//             getTimeline(rows[active])?.restart();
-
-//             rows.forEach((r, i) => {
-//               r.style.pointerEvents = i === active ? "auto" : "none";
-//               r.style.zIndex = i === active ? 1 : 0;
-//             });
-
-//             lastActive = active;
-//           }
-//         },
-//       },
-//     });
-
-//     tl.to({}, { duration: 2 })
-//       .to(rows[0], { autoAlpha: 0, duration: 1.5 })
-//       .to(rows[1], { autoAlpha: 1, duration: 1.5 })
-//       .to({}, { duration: 2 })
-//       .to(rows[1], { autoAlpha: 0, duration: 1.5 })
-//       .to(rows[2], { autoAlpha: 1, duration: 1.5 })
-//       .to({}, { duration: 2 });
-
-//     return () => {
-//       gsap.set(rows, { clearProps: "all" });
-//     };
-//   });
-
-//   mm.add("(max-width: 767px)", () => {
-//     gsap.set(rows, { autoAlpha: 1, gridArea: "auto", pointerEvents: "auto" });
-//     gsap.set(section, { height: "auto", overflow: "visible" });
-
-//     if (reducedMotion) return;
-
-//     const triggers = [];
-
-//     rows.forEach((row) => {
-//       const visualWrap = row.querySelector("[data-process-visual-wrap]");
-
-//       const trigger = ScrollTrigger.create({
-//         trigger: visualWrap,
-//         start: "top 60%",
-//         onEnter: () => getTimeline(row)?.restart(),
-//         onEnterBack: () => getTimeline(row)?.restart(),
-//       });
-
-//       triggers.push(trigger);
-//     });
-
-//     return () => {
-//       triggers.forEach((t) => t.kill());
-//       gsap.set(rows, { clearProps: "all" });
-//       gsap.set(section, { clearProps: "all" });
-//     };
-//   });
-// }
-
 function initProcessSection() {
   const section = document.querySelector("[data-process-section]");
   if (!section || typeof gsap === "undefined") return;
@@ -589,7 +444,10 @@ function initProcessSection() {
       return;
     }
 
-    gsap.set(rows, { autoAlpha: 1 });
+    const triggerStart = "top 75%";
+    const finalDwellVH = 50;
+
+    gsap.set(rows, { autoAlpha: 1, minHeight: "100vh" });
     gsap.set(stage, { position: "relative" });
 
     const rightTrack = document.createElement("div");
@@ -628,6 +486,17 @@ function initProcessSection() {
       });
     });
 
+    const triggers = [];
+
+    const lastRowPin = ScrollTrigger.create({
+      trigger: rows[rows.length - 1],
+      start: "center center",
+      end: `+=${finalDwellVH}vh`,
+      pin: true,
+      pinSpacing: true,
+    });
+    triggers.push(lastRowPin);
+
     const pinTrigger = ScrollTrigger.create({
       trigger: stage,
       start: "top top",
@@ -637,7 +506,6 @@ function initProcessSection() {
     });
 
     let lastActive = -1;
-    const triggers = [];
 
     function transitionTo(index, direction) {
       if (index === lastActive) return;
@@ -673,7 +541,7 @@ function initProcessSection() {
         row.querySelector(".process_left-wrap");
       const trigger = ScrollTrigger.create({
         trigger: leftWrap,
-        start: "center center",
+        start: triggerStart,
         onEnter: () => transitionTo(i, 1),
         onEnterBack: () => transitionTo(i, -1),
       });
