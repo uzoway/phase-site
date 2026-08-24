@@ -267,25 +267,46 @@ function initMobileNavigation() {
 }
 
 /* Logo subtle scroll interaction */
-function getLogoElements() {
-  const root = document.querySelector('[data-logo="root"]');
-  const mark = document.querySelector('[data-logo="mark"]');
-  const text = document.querySelector('[data-logo="text"]');
+function initNavbarScrollState() {
+  const nav = document.querySelector('[data-nav="root"]');
 
-  if (!root || !mark || !text) return null;
+  if (!nav) return;
 
-  return { root, mark, text };
-}
+  const enterThreshold = 120;
+  const exitThreshold = 80;
 
-function getLogoEase() {
-  if (typeof CustomEase === "undefined") {
-    return "power3.out";
+  let isScrolled = false;
+  let ticking = false;
+
+  function updateNavState() {
+    const scrollY = window.scrollY;
+
+    ticking = false;
+
+    if (!isScrolled && scrollY >= enterThreshold) {
+      isScrolled = true;
+      nav.setAttribute("data-nav-scrolled", "");
+      return;
+    }
+
+    if (isScrolled && scrollY <= exitThreshold) {
+      isScrolled = false;
+      nav.removeAttribute("data-nav-scrolled");
+    }
   }
 
-  gsap.registerPlugin(CustomEase);
-  CustomEase.create("logo-ease-out-quint", "0.23,1,0.32,1");
+  function handleScroll() {
+    if (ticking) return;
 
-  return "logo-ease-out-quint";
+    ticking = true;
+    requestAnimationFrame(updateNavState);
+  }
+
+  window.addEventListener("scroll", handleScroll, {
+    passive: true,
+  });
+
+  updateNavState();
 }
 
 /* Approach section scroll interaction */
@@ -518,6 +539,7 @@ function initProcessSection() {
 
 document.addEventListener("DOMContentLoaded", function () {
   initMobileNavigation();
+  initNavbarScrollState();
   initApproachScroll();
   initProcessSection();
 });
