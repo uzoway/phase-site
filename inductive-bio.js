@@ -145,11 +145,6 @@ function initProcessSection(section, DotLottie) {
 
   const media = gsap.matchMedia();
 
-  /*
-   * Remember mobile segments that
-   * have already played during this
-   * page visit.
-   */
   const mobilePlayed = new Set();
 
   media.add(
@@ -194,11 +189,6 @@ function initProcessSection(section, DotLottie) {
       };
 
       async function setupDesktop(modeState) {
-        /*
-         * Rows 2 and 3 keep their
-         * visual columns for layout,
-         * but no Lottie is rendered.
-         */
         gsap.set(hosts.slice(1), {
           autoAlpha: 0,
         });
@@ -218,6 +208,7 @@ function initProcessSection(section, DotLottie) {
             {
               length: PROCESS_ROWS,
             },
+
             function createSegment(_, index) {
               return getProcessSegment(record.totalFrames, index);
             },
@@ -232,7 +223,7 @@ function initProcessSection(section, DotLottie) {
 
             endTrigger: rows[PROCESS_ROWS - 1],
 
-            end: "bottom center",
+            end: "center center",
 
             pin: hosts[0],
 
@@ -248,24 +239,35 @@ function initProcessSection(section, DotLottie) {
           rows.forEach(function createRowScrub(row, index) {
             const segment = segments[index];
 
-            const config =
-              index === 0
-                ? {
-                    trigger: visuals[0],
+            let config;
 
-                    start: "center center",
+            if (index === 0) {
+              config = {
+                trigger: visuals[0],
 
-                    endTrigger: row,
+                start: "center center",
 
-                    end: "bottom center",
-                  }
-                : {
-                    trigger: row,
+                endTrigger: row,
 
-                    start: "top center",
+                end: "bottom center",
+              };
+            } else if (index === PROCESS_ROWS - 1) {
+              config = {
+                trigger: row,
 
-                    end: "bottom center",
-                  };
+                start: "top center",
+
+                end: "center center",
+              };
+            } else {
+              config = {
+                trigger: row,
+
+                start: "top center",
+
+                end: "bottom center",
+              };
+            }
 
             const trigger = ScrollTrigger.create({
               ...config,
@@ -317,14 +319,6 @@ function initProcessSection(section, DotLottie) {
           autoAlpha: 1,
         });
 
-        /*
-         * Initialize sequentially.
-         *
-         * This avoids asking the
-         * browser to construct three
-         * WASM/canvas animations at
-         * exactly the same moment.
-         */
         for (let index = 0; index < PROCESS_ROWS; index += 1) {
           if (modeState.cancelled) {
             return;
@@ -343,12 +337,6 @@ function initProcessSection(section, DotLottie) {
 
             const segment = getProcessSegment(record.totalFrames, index);
 
-            /*
-             * If this row already played
-             * earlier during this page
-             * visit, restore its completed
-             * state instead of replaying.
-             */
             if (mobilePlayed.has(index)) {
               setProcessFrame(record, segment.end);
 
@@ -413,14 +401,6 @@ function initProcessSection(section, DotLottie) {
           autoAlpha: 1,
         });
 
-        /*
-         * No pinning.
-         * No playback.
-         *
-         * Each row displays the
-         * completed frame of its
-         * respective segment.
-         */
         for (let index = 0; index < PROCESS_ROWS; index += 1) {
           if (modeState.cancelled) {
             return;
