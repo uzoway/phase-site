@@ -1,31 +1,48 @@
-const DOTLOTTIE_MODULE_URL =
+const SEGMENTED_LOTTIE_MODULE_URL =
   "https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/+esm";
 
-const PROCESS_PARTS = 8;
-const PROCESS_ROWS = 3;
+const SEGMENTED_LOTTIE_PARTS = 8;
 
-let dotLottieModulePromise = null;
+let segmentedLottieModulePromise = null;
+let segmentedRefreshFrame = null;
 
-function loadDotLottieModule() {
-  if (!dotLottieModulePromise) {
-    dotLottieModulePromise = import(DOTLOTTIE_MODULE_URL);
+function loadSegmentedLottieModule() {
+  if (!segmentedLottieModulePromise) {
+    segmentedLottieModulePromise = import(SEGMENTED_LOTTIE_MODULE_URL);
   }
 
-  return dotLottieModulePromise;
+  return segmentedLottieModulePromise;
 }
 
-function getProcessSegment(totalFrames, index) {
-  const start = Math.round((totalFrames * index) / PROCESS_PARTS);
+function getSegmentedLottiePart(totalFrames, partIndex) {
+  const start = Math.round((totalFrames * partIndex) / SEGMENTED_LOTTIE_PARTS);
 
-  const nextStart = Math.round((totalFrames * (index + 1)) / PROCESS_PARTS);
+  const nextStart = Math.round(
+    (totalFrames * (partIndex + 1)) / SEGMENTED_LOTTIE_PARTS,
+  );
 
   return {
     start: start,
+
     end: Math.max(start, nextStart - 1),
   };
 }
 
-function setProcessFrame(record, frame) {
+function getSectionLottiePart(totalFrames, config, rowIndex) {
+  const part = getSegmentedLottiePart(totalFrames, config.startPart + rowIndex);
+
+  if (rowIndex !== 0 || !config.firstPartStartOffset) {
+    return part;
+  }
+
+  return {
+    start: Math.min(part.end, part.start + config.firstPartStartOffset),
+
+    end: part.end,
+  };
+}
+
+function setSegmentedLottieFrame(record, frame) {
   if (!record) {
     return;
   }
@@ -41,11 +58,14 @@ function setProcessFrame(record, frame) {
   record.player.setFrame(nextFrame);
 }
 
-function createProcessPlayer(host, DotLottie) {
-  const src = host.getAttribute("data-process-lottie-src");
+function createSegmentedLottiePlayer(host, DotLottie) {
+  const src =
+    host.getAttribute("data-segmented-lottie-src") ||
+    host.getAttribute("data-process-lottie-src") ||
+    host.getAttribute("data-labs-lottie-src");
 
   if (!src) {
-    return Promise.reject(new Error("Missing data-process-lottie-src"));
+    return Promise.reject(new Error("Missing Lottie asset URL."));
   }
 
   const canvas = document.createElement("canvas");
@@ -72,13 +92,13 @@ function createProcessPlayer(host, DotLottie) {
 
       player.removeEventListener("loadError", handleError);
 
-      const totalFrames = Math.max(1, Math.floor(player.totalFrames));
-
       resolve({
         host: host,
         canvas: canvas,
         player: player,
-        totalFrames: totalFrames,
+
+        totalFrames: Math.max(1, Math.floor(player.totalFrames)),
+
         currentFrame: null,
       });
     }
@@ -97,7 +117,7 @@ function createProcessPlayer(host, DotLottie) {
   });
 }
 
-function destroyProcessPlayer(record) {
+function destroySegmentedLottiePlayer(record) {
   if (!record) {
     return;
   }
@@ -106,46 +126,141 @@ function destroyProcessPlayer(record) {
     record.player.pause();
     record.player.destroy();
   } catch (error) {
-    console.warn("Could not destroy process Lottie:", error);
+    console.warn("Could not destroy Lottie:", error);
   }
 
   record.host.replaceChildren();
 }
 
-function initProcessSection(section, DotLottie) {
-  const rowsWrap = section.querySelector("[data-process-rows]");
+function getSegmentedSectionElements(config) {
+  const rowsWrap = config.section.querySelector(config.rowsSelector);
 
-  const rows = Array.from(section.querySelectorAll("[data-process-row]")).slice(
-    0,
-    PROCESS_ROWS,
-  );
-
-  if (!rowsWrap || rows.length < PROCESS_ROWS) {
-    return;
-  }
+  const rows = Array.from(
+    config.section.querySelectorAll(config.rowSelector),
+  ).slice(0, config.rowCount);
 
   const visuals = rows.map(function getVisual(row) {
-    return row.querySelector("[data-process-visual]");
+    return row.querySelector(config.visualSelector);
   });
 
   const hosts = rows.map(function getHost(row) {
-    return row.querySelector("[data-process-lottie]");
+    return row.querySelector(config.lottieSelector);
   });
 
   if (
-    visuals.some(function missingVisual(visual) {
+    !rowsWrap ||
+    rows.length !== config.rowCount ||
+    visuals.some(function hasMissingVisual(visual) {
       return !visual;
     }) ||
-    hosts.some(function missingHost(host) {
+    hosts.some(function hasMissingHost(host) {
       return !host;
     })
   ) {
+    return null;
+  }
+
+  return {
+    rowsWrap: rowsWrap,
+    rows: rows,
+    visuals: visuals,
+    hosts: hosts,
+  };
+}
+
+function createSegmentedSectionParts(totalFrames, config) {
+  return Array.from(
+    {
+      length: config.rowCount,
+    },
+
+    function createPart(_, index) {
+      return getSectionLottiePart(totalFrames, config, index);
+    },
+  );
+}
+
+function createDesktopRowTriggerConfig(rows, visuals, index) {
+  const finalIndex = rows.length - 1;
+
+  if (index === 0) {
+    return {
+      trigger: visuals[0],
+
+      start: "center center",
+
+      endTrigger: rows[0],
+
+      end: "bottom center",
+    };
+  }
+
+  if (index === finalIndex) {
+    return {
+      trigger: rows[index],
+
+      start: "top center",
+
+      end: "center center",
+    };
+  }
+
+  return {
+    trigger: rows[index],
+
+    start: "top center",
+
+    end: "bottom center",
+  };
+}
+
+function cleanupSegmentedMode(state, hosts) {
+  state.cancelled = true;
+
+  state.eventCleanups.forEach(function runCleanup(cleanup) {
+    cleanup();
+  });
+
+  state.triggers.forEach(function killTrigger(trigger) {
+    trigger.kill(true);
+  });
+
+  state.players.forEach(function destroyPlayer(record) {
+    destroySegmentedLottiePlayer(record);
+  });
+
+  gsap.set(hosts, {
+    clearProps: "opacity,visibility,transform",
+  });
+}
+
+function scheduleSegmentedRefresh() {
+  if (segmentedRefreshFrame) {
+    window.cancelAnimationFrame(segmentedRefreshFrame);
+  }
+
+  segmentedRefreshFrame = window.requestAnimationFrame(
+    function refreshSegmentedScrollTriggers() {
+      segmentedRefreshFrame = null;
+
+      ScrollTrigger.sort();
+      ScrollTrigger.refresh();
+    },
+  );
+}
+
+function initSegmentedLottieSection(config, DotLottie) {
+  const elements = getSegmentedSectionElements(config);
+
+  if (!elements) {
     return;
   }
 
-  const media = gsap.matchMedia();
+  const { rows, visuals, hosts } = elements;
 
   const mobilePlayed = new Set();
+
+  const media = gsap.matchMedia();
 
   media.add(
     {
@@ -157,7 +272,7 @@ function initProcessSection(section, DotLottie) {
     },
 
     function setupMode(context) {
-      const conditions = context.conditions;
+      const { desktop, mobile, reduce } = context.conditions;
 
       const state = {
         cancelled: false,
@@ -166,62 +281,48 @@ function initProcessSection(section, DotLottie) {
         eventCleanups: [],
       };
 
-      if (conditions.reduce) {
-        setupReducedMotion(state);
-
-        return function cleanupReduced() {
-          cleanupMode(state);
-        };
+      if (reduce) {
+        setupReducedMode(state);
+      } else if (desktop) {
+        setupDesktopMode(state);
+      } else if (mobile) {
+        setupMobileMode(state);
       }
 
-      if (conditions.desktop) {
-        setupDesktop(state);
-
-        return function cleanupDesktop() {
-          cleanupMode(state);
-        };
-      }
-
-      setupMobile(state);
-
-      return function cleanupMobile() {
-        cleanupMode(state);
+      return function cleanupMode() {
+        cleanupSegmentedMode(state, hosts);
       };
 
-      async function setupDesktop(modeState) {
+      async function setupDesktopMode(modeState) {
+        gsap.set(hosts[0], {
+          autoAlpha: 1,
+        });
+
         gsap.set(hosts.slice(1), {
           autoAlpha: 0,
         });
 
         try {
-          const record = await createProcessPlayer(hosts[0], DotLottie);
+          const record = await createSegmentedLottiePlayer(hosts[0], DotLottie);
 
           if (modeState.cancelled) {
-            destroyProcessPlayer(record);
+            destroySegmentedLottiePlayer(record);
 
             return;
           }
 
           modeState.players.push(record);
 
-          const segments = Array.from(
-            {
-              length: PROCESS_ROWS,
-            },
+          const parts = createSegmentedSectionParts(record.totalFrames, config);
 
-            function createSegment(_, index) {
-              return getProcessSegment(record.totalFrames, index);
-            },
-          );
-
-          setProcessFrame(record, segments[0].start);
+          setSegmentedLottieFrame(record, parts[0].start);
 
           const pinTrigger = ScrollTrigger.create({
             trigger: visuals[0],
 
             start: "center center",
 
-            endTrigger: rows[PROCESS_ROWS - 1],
+            endTrigger: rows[rows.length - 1],
 
             end: "center center",
 
@@ -236,116 +337,95 @@ function initProcessSection(section, DotLottie) {
 
           modeState.triggers.push(pinTrigger);
 
-          rows.forEach(function createRowScrub(row, index) {
-            const segment = segments[index];
+          rows.forEach(function createRowTrigger(row, index) {
+            const part = parts[index];
 
-            let config;
-
-            if (index === 0) {
-              config = {
-                trigger: visuals[0],
-
-                start: "center center",
-
-                endTrigger: row,
-
-                end: "bottom center",
-              };
-            } else if (index === PROCESS_ROWS - 1) {
-              config = {
-                trigger: row,
-
-                start: "top center",
-
-                end: "center center",
-              };
-            } else {
-              config = {
-                trigger: row,
-
-                start: "top center",
-
-                end: "bottom center",
-              };
-            }
+            const triggerConfig = createDesktopRowTriggerConfig(
+              rows,
+              visuals,
+              index,
+            );
 
             const trigger = ScrollTrigger.create({
-              ...config,
+              ...triggerConfig,
 
               invalidateOnRefresh: true,
 
               onUpdate: function updateFrame(self) {
                 const frame = gsap.utils.interpolate(
-                  segment.start,
-                  segment.end,
+                  part.start,
+                  part.end,
                   self.progress,
                 );
 
-                setProcessFrame(record, frame);
+                setSegmentedLottieFrame(record, frame);
               },
 
-              onEnter: function enterSegment() {
-                setProcessFrame(record, segment.start);
+              onEnter: function enterPart() {
+                setSegmentedLottieFrame(record, part.start);
               },
 
-              onEnterBack: function enterSegmentBack() {
-                setProcessFrame(record, segment.end);
+              onEnterBack: function enterPartBack() {
+                setSegmentedLottieFrame(record, part.end);
               },
 
-              onLeave: function finishSegment() {
-                setProcessFrame(record, segment.end);
+              onLeave: function finishPart() {
+                setSegmentedLottieFrame(record, part.end);
               },
 
-              onLeaveBack: function resetSegment() {
-                setProcessFrame(record, segment.start);
+              onLeaveBack: function resetPart() {
+                setSegmentedLottieFrame(record, part.start);
               },
             });
 
             modeState.triggers.push(trigger);
           });
 
-          window.requestAnimationFrame(function refreshDesktop() {
-            if (!modeState.cancelled) {
-              ScrollTrigger.refresh();
-            }
-          });
+          scheduleSegmentedRefresh();
         } catch (error) {
-          console.error("Process Lottie failed to load:", error);
+          console.error(`${config.name} Lottie failed to load:`, error);
         }
       }
 
-      async function setupMobile(modeState) {
+      async function setupMobileMode(modeState) {
         gsap.set(hosts, {
           autoAlpha: 1,
         });
 
-        for (let index = 0; index < PROCESS_ROWS; index += 1) {
+        for (let index = 0; index < config.rowCount; index += 1) {
           if (modeState.cancelled) {
             return;
           }
 
           try {
-            const record = await createProcessPlayer(hosts[index], DotLottie);
+            const record = await createSegmentedLottiePlayer(
+              hosts[index],
+              DotLottie,
+            );
 
             if (modeState.cancelled) {
-              destroyProcessPlayer(record);
+              destroySegmentedLottiePlayer(record);
 
               return;
             }
 
             modeState.players.push(record);
 
-            const segment = getProcessSegment(record.totalFrames, index);
+            const part = getSectionLottiePart(
+              record.totalFrames,
+              config,
+              index,
+            );
 
             if (mobilePlayed.has(index)) {
-              setProcessFrame(record, segment.end);
+              setSegmentedLottieFrame(record, part.end);
 
               continue;
             }
 
-            record.player.setSegment(segment.start, segment.end);
+            record.player.setSegment(part.start, part.end);
 
-            setProcessFrame(record, segment.start);
+            setSegmentedLottieFrame(record, part.start);
 
             const trigger = ScrollTrigger.create({
               trigger: visuals[index],
@@ -354,23 +434,23 @@ function initProcessSection(section, DotLottie) {
 
               once: true,
 
-              onEnter: function playSegment() {
+              onEnter: function playPart() {
                 if (mobilePlayed.has(index)) {
                   return;
                 }
 
                 mobilePlayed.add(index);
 
-                record.player.setSegment(segment.start, segment.end);
+                record.player.setSegment(part.start, part.end);
 
-                setProcessFrame(record, segment.start);
+                setSegmentedLottieFrame(record, part.start);
 
                 function handleComplete() {
                   record.player.removeEventListener("complete", handleComplete);
 
                   record.player.pause();
 
-                  setProcessFrame(record, segment.end);
+                  setSegmentedLottieFrame(record, part.end);
                 }
 
                 record.player.addEventListener("complete", handleComplete);
@@ -385,99 +465,76 @@ function initProcessSection(section, DotLottie) {
 
             modeState.triggers.push(trigger);
           } catch (error) {
-            console.error("Process Lottie failed to load:", error);
+            console.error(`${config.name} Lottie failed to load:`, error);
           }
         }
 
-        window.requestAnimationFrame(function refreshMobile() {
-          if (!modeState.cancelled) {
-            ScrollTrigger.refresh();
-          }
-        });
+        scheduleSegmentedRefresh();
       }
 
-      async function setupReducedMotion(modeState) {
+      async function setupReducedMode(modeState) {
         gsap.set(hosts, {
           autoAlpha: 1,
         });
 
-        for (let index = 0; index < PROCESS_ROWS; index += 1) {
+        for (let index = 0; index < config.rowCount; index += 1) {
           if (modeState.cancelled) {
             return;
           }
 
           try {
-            const record = await createProcessPlayer(hosts[index], DotLottie);
+            const record = await createSegmentedLottiePlayer(
+              hosts[index],
+              DotLottie,
+            );
 
             if (modeState.cancelled) {
-              destroyProcessPlayer(record);
+              destroySegmentedLottiePlayer(record);
 
               return;
             }
 
             modeState.players.push(record);
 
-            const segment = getProcessSegment(record.totalFrames, index);
+            const part = getSectionLottiePart(
+              record.totalFrames,
+              config,
+              index,
+            );
 
             record.player.pause();
 
-            setProcessFrame(record, segment.end);
+            setSegmentedLottieFrame(record, part.end);
           } catch (error) {
-            console.error("Process Lottie failed to load:", error);
+            console.error(`${config.name} Lottie failed to load:`, error);
           }
         }
 
-        window.requestAnimationFrame(function refreshReducedMotion() {
-          if (!modeState.cancelled) {
-            ScrollTrigger.refresh();
-          }
-        });
-      }
-
-      function cleanupMode(modeState) {
-        modeState.cancelled = true;
-
-        modeState.eventCleanups.forEach(function runCleanup(cleanup) {
-          cleanup();
-        });
-
-        modeState.triggers.forEach(function killTrigger(trigger) {
-          trigger.kill(true);
-        });
-
-        modeState.players.forEach(function destroyPlayer(record) {
-          destroyProcessPlayer(record);
-        });
-
-        gsap.set(hosts, {
-          clearProps: "opacity,visibility,transform",
-        });
-
-        window.requestAnimationFrame(function refreshAfterCleanup() {
-          ScrollTrigger.refresh();
-        });
+        scheduleSegmentedRefresh();
       }
     },
   );
 }
 
-async function initProcessScroll() {
-  const sections = document.querySelectorAll("[data-process]");
+async function initSegmentedLottieSections() {
+  if (typeof gsap === "undefined" || typeof ScrollTrigger === "undefined") {
+    console.warn("Segmented Lottie animations require GSAP and ScrollTrigger.");
 
-  if (!sections.length) {
     return;
   }
 
-  if (typeof gsap === "undefined" || typeof ScrollTrigger === "undefined") {
-    console.warn("Process animation requires GSAP and ScrollTrigger.");
+  const processSection = document.querySelector("[data-process]");
 
+  const labsSection = document.querySelector("[data-labs]");
+
+  if (!processSection && !labsSection) {
     return;
   }
 
   gsap.registerPlugin(ScrollTrigger);
 
   try {
-    const module = await loadDotLottieModule();
+    const module = await loadSegmentedLottieModule();
 
     const DotLottie = module.DotLottie;
 
@@ -489,14 +546,64 @@ async function initProcessScroll() {
       DotLottie.preload();
     }
 
-    sections.forEach(function setupSection(section) {
-      initProcessSection(section, DotLottie);
-    });
+    if (processSection) {
+      initSegmentedLottieSection(
+        {
+          name: "Process",
+
+          section: processSection,
+
+          rowsSelector: "[data-process-rows]",
+
+          rowSelector: "[data-process-row]",
+
+          visualSelector: "[data-process-visual]",
+
+          lottieSelector: "[data-process-lottie]",
+
+          rowCount: 3,
+
+          startPart: 0,
+
+          firstPartStartOffset: 0,
+        },
+
+        DotLottie,
+      );
+    }
+
+    if (labsSection) {
+      initSegmentedLottieSection(
+        {
+          name: "Labs",
+
+          section: labsSection,
+
+          rowsSelector: "[data-labs-rows]",
+
+          rowSelector: "[data-labs-row]",
+
+          visualSelector: "[data-labs-visual]",
+
+          lottieSelector: "[data-labs-lottie]",
+
+          rowCount: 5,
+
+          startPart: 3,
+
+          firstPartStartOffset: 70,
+        },
+
+        DotLottie,
+      );
+    }
+
+    scheduleSegmentedRefresh();
   } catch (error) {
-    console.error("Unable to initialize DotLottie runtime:", error);
+    console.error("Unable to initialize segmented Lottie runtime:", error);
   }
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-  initProcessScroll();
+  initSegmentedLottieSections();
 });
