@@ -1,3 +1,577 @@
-.test {
-  border-radius: 1px solid red;
+:root {
+  --inductive-purple: #454271;
+  --inductive-linen: #f0ede9;
+  --inductive-white: #ffffff;
+  --inductive-border: 1px solid #454271;
+
+  --inductive-mono:
+    "GT Pressura Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--inductive-purple);
+}
+
+body,
+button,
+input,
+textarea {
+  font-family: var(--inductive-mono);
+  color: var(--inductive-purple);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* -------------------------------------------------------
+   BASE FORM
+------------------------------------------------------- */
+
+#form {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.ashby-application-form-container,
+.ashby-application-form-section-container {
+  width: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* -------------------------------------------------------
+   HIDE ASHBY ELEMENTS NOT PRESENT IN FIGMA
+------------------------------------------------------- */
+
+.ashby-application-form-autofill-pane {
+  display: none !important;
+}
+
+/*
+ * LinkedIn Profile.
+ * This field is optional in the current Ashby form and
+ * does not exist in the supplied careers design.
+ */
+.ashby-application-form-field-entry[data-field-path="fbe6a9c0-b450-4966-9c2a-151d1a9813b4"] {
+  display: none !important;
+}
+
+/* -------------------------------------------------------
+   FIELD LAYOUT
+------------------------------------------------------- */
+
+.ashby-application-form-field-entry {
+  width: 100%;
+  margin: 0 0 2rem !important;
+  padding: 0 !important;
+}
+
+.ashby-application-form-field-entry:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* -------------------------------------------------------
+   LABELS
+------------------------------------------------------- */
+
+.ashby-application-form-question-title {
+  display: block;
+  width: 100%;
+  margin: 0 0 0.5rem !important;
+  padding: 0 !important;
+
+  color: var(--inductive-purple) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1.25 !important;
+  letter-spacing: -0.02em !important;
+  text-transform: uppercase !important;
+}
+
+.ashby-application-form-question-title::after,
+.ashby-application-form-question-title::before {
+  color: var(--inductive-purple) !important;
+}
+
+/* -------------------------------------------------------
+   QUESTION DESCRIPTIONS
+------------------------------------------------------- */
+
+.ashby-application-form-question-description {
+  margin: 0 !important;
+  padding: 0 !important;
+
+  color: var(--inductive-purple) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.75rem !important;
+  font-weight: 400 !important;
+  line-height: 1.3 !important;
+}
+
+.ashby-application-form-question-description:empty,
+.ashby-application-form-question-description p:empty {
+  display: none !important;
+}
+
+/* -------------------------------------------------------
+   TEXT INPUTS
+------------------------------------------------------- */
+
+.ashby-application-form-input-text {
+  display: block;
+  width: 100% !important;
+  height: 3.75rem !important;
+
+  margin: 0 !important;
+  padding: 0.75rem 1rem !important;
+
+  border: var(--inductive-border) !important;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  color: var(--inductive-purple) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1.3 !important;
+
+  box-shadow: none !important;
+  outline: none !important;
+
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.ashby-application-form-input-text::placeholder {
+  color: transparent !important;
+}
+
+.ashby-application-form-input-text:hover {
+  background: rgb(69 66 113 / 3%) !important;
+}
+
+.ashby-application-form-input-text:focus {
+  background: transparent !important;
+
+  outline: 0.125rem solid var(--inductive-purple) !important;
+  outline-offset: 0.125rem !important;
+
+  box-shadow: none !important;
+}
+
+/* -------------------------------------------------------
+   TEXTAREAS
+------------------------------------------------------- */
+
+.ashby-application-form-input-textarea {
+  display: block;
+  width: 100% !important;
+  min-height: 9.5rem !important;
+
+  margin: 0 !important;
+  padding: 1rem !important;
+
+  resize: vertical;
+
+  border: var(--inductive-border) !important;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  color: var(--inductive-purple) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1.4 !important;
+
+  box-shadow: none !important;
+  outline: none !important;
+
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.ashby-application-form-input-textarea::placeholder {
+  color: transparent !important;
+}
+
+.ashby-application-form-input-textarea:hover {
+  background: rgb(69 66 113 / 3%) !important;
+}
+
+.ashby-application-form-input-textarea:focus {
+  outline: 0.125rem solid var(--inductive-purple) !important;
+  outline-offset: 0.125rem !important;
+}
+
+/* -------------------------------------------------------
+   RESUME UPLOAD
+------------------------------------------------------- */
+
+.ashby-application-form-input-file {
+  width: 100% !important;
+  min-height: 13.25rem !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  border: var(--inductive-border) !important;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  box-shadow: none !important;
+}
+
+.ashby-application-form-input-file-dropzone {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  width: 100% !important;
+  min-height: 13.125rem !important;
+
+  gap: 1.5rem !important;
+
+  margin: 0 !important;
+  padding: 2rem !important;
+
+  background: transparent !important;
+}
+
+/* Upload button */
+
+.ashby-application-form-input-file-dropzone-upload {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  flex: none !important;
+
+  width: auto !important;
+  min-width: 13.25rem !important;
+  height: 3.25rem !important;
+
+  gap: 1rem !important;
+
+  margin: 0 !important;
+  padding: 0 1.25rem !important;
+
+  border: var(--inductive-border) !important;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  color: var(--inductive-purple) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.02em !important;
+  text-transform: uppercase !important;
+
+  box-shadow: none !important;
+
+  cursor: pointer;
+}
+
+/* Remove Ashby's paperclip */
+
+.ashby-application-form-input-file-dropzone-upload svg {
+  display: none !important;
+}
+
+/* Add Inductive-style chevron */
+
+.ashby-application-form-input-file-dropzone-upload::after {
+  content: "";
+
+  width: 0.55rem;
+  height: 0.55rem;
+
+  flex: none;
+
+  border-top: 0.125rem solid currentColor;
+  border-right: 0.125rem solid currentColor;
+
+  transform: rotate(45deg);
+
+  transition: transform 180ms ease;
+}
+
+.ashby-application-form-input-file-dropzone-upload:hover::after {
+  transform: translateX(0.15rem) rotate(45deg);
+}
+
+.ashby-application-form-input-file-dropzone-upload:focus-visible {
+  outline: 0.125rem solid var(--inductive-purple) !important;
+  outline-offset: 0.1875rem !important;
+}
+
+/* Drag and drop text */
+
+.ashby-application-form-input-file-dropzone-instructions {
+  display: block !important;
+
+  margin: 0 !important;
+
+  color: rgb(69 66 113 / 70%) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1.3 !important;
+  letter-spacing: -0.02em !important;
+}
+
+/* -------------------------------------------------------
+   YES / NO
+------------------------------------------------------- */
+
+.ashby-application-form-input-yesno {
+  display: inline-flex !important;
+
+  width: auto !important;
+  height: auto !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  border: 0 !important;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  gap: 0 !important;
+}
+
+.ashby-application-form-input-yesno-option {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  width: auto !important;
+  min-width: 4.5rem !important;
+  height: 3rem !important;
+
+  margin: 0 !important;
+  padding: 0 1rem !important;
+
+  border: var(--inductive-border) !important;
+  border-radius: 0 !important;
+
+  background: transparent !important;
+
+  color: var(--inductive-purple) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.02em !important;
+  text-transform: uppercase !important;
+
+  box-shadow: none !important;
+
+  cursor: pointer;
+}
+
+.ashby-application-form-input-yesno-option
+  + .ashby-application-form-input-yesno-option {
+  margin-left: -0.0625rem !important;
+}
+
+.ashby-application-form-input-yesno-option:hover {
+  background: rgb(69 66 113 / 5%) !important;
+}
+
+.ashby-application-form-input-yesno-option[aria-pressed="true"] {
+  position: relative;
+  z-index: 1;
+
+  background: var(--inductive-purple) !important;
+  color: var(--inductive-white) !important;
+}
+
+.ashby-application-form-input-yesno-option:focus-visible {
+  position: relative;
+  z-index: 2;
+
+  outline: 0.125rem solid var(--inductive-purple) !important;
+  outline-offset: 0.1875rem !important;
+}
+
+/* -------------------------------------------------------
+   SUBMIT
+------------------------------------------------------- */
+
+.ashby-application-form-submit-button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+
+  width: 100% !important;
+  height: 3.25rem !important;
+
+  gap: 1.25rem !important;
+
+  margin: 3.5rem 0 0 !important;
+  padding: 0 1.25rem !important;
+
+  border: 0 !important;
+  border-radius: 0 !important;
+
+  background: var(--inductive-purple) !important;
+
+  color: var(--inductive-white) !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.02em !important;
+  text-transform: uppercase !important;
+
+  box-shadow: none !important;
+
+  cursor: pointer;
+
+  transition:
+    opacity 180ms ease,
+    background-color 180ms ease;
+}
+
+.ashby-application-form-submit-button:hover {
+  opacity: 0.88;
+}
+
+/* Remove Ashby's paper-plane icon */
+
+.ashby-application-form-submit-button svg {
+  display: none !important;
+}
+
+/* Inductive chevron */
+
+.ashby-application-form-submit-button::after {
+  content: "";
+
+  width: 0.55rem;
+  height: 0.55rem;
+
+  flex: none;
+
+  border-top: 0.125rem solid currentColor;
+  border-right: 0.125rem solid currentColor;
+
+  transform: rotate(45deg);
+
+  transition: transform 180ms ease;
+}
+
+.ashby-application-form-submit-button:hover::after {
+  transform: translateX(0.15rem) rotate(45deg);
+}
+
+.ashby-application-form-submit-button:focus-visible {
+  outline: 0.125rem solid var(--inductive-purple) !important;
+  outline-offset: 0.1875rem !important;
+}
+
+/* -------------------------------------------------------
+   VALIDATION
+------------------------------------------------------- */
+
+.ashby-application-form-input-text[aria-invalid="true"],
+.ashby-application-form-input-textarea[aria-invalid="true"] {
+  border-color: #b42318 !important;
+}
+
+[role="alert"] {
+  color: #b42318 !important;
+
+  font-family: var(--inductive-mono) !important;
+  font-size: 0.75rem !important;
+  line-height: 1.3 !important;
+}
+
+/* -------------------------------------------------------
+   SMALL SCREENS
+------------------------------------------------------- */
+
+@media (max-width: 40rem) {
+  .ashby-application-form-field-entry {
+    margin-bottom: 1.75rem !important;
+  }
+
+  .ashby-application-form-input-file,
+  .ashby-application-form-input-file-dropzone {
+    min-height: 12.5rem !important;
+  }
+
+  .ashby-application-form-input-file-dropzone {
+    gap: 1.25rem !important;
+    padding: 1.5rem !important;
+  }
+
+  .ashby-application-form-input-file-dropzone-upload {
+    min-width: auto !important;
+  }
+
+  .ashby-application-form-input-textarea {
+    min-height: 9rem !important;
+  }
+
+  .ashby-application-form-submit-button {
+    margin-top: 3rem !important;
+  }
+}
+
+/* Very narrow devices only */
+
+@media (max-width: 25rem) {
+  .ashby-application-form-input-file-dropzone {
+    flex-direction: column !important;
+  }
+
+  .ashby-application-form-input-file-dropzone-instructions {
+    text-align: center !important;
+  }
+}
+
+/* -------------------------------------------------------
+   REDUCED MOTION
+------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ashby-application-form-input-text,
+  .ashby-application-form-input-textarea,
+  .ashby-application-form-submit-button,
+  .ashby-application-form-input-file-dropzone-upload,
+  .ashby-application-form-submit-button::after,
+  .ashby-application-form-input-file-dropzone-upload::after {
+    transition: none !important;
+  }
 }
