@@ -136,7 +136,7 @@ textarea {
 .ashby-application-form-input-text {
   display: block;
   width: 100% !important;
-  height: 3.75rem !important;
+  height: 2.5rem !important;
 
   margin: 0 !important;
   padding: 0.75rem 1rem !important;
@@ -173,7 +173,7 @@ textarea {
   background: transparent !important;
 
   outline: 0.125rem solid var(--inductive-purple) !important;
-  outline-offset: 0.125rem !important;
+  outline-offset: -2px !important;
 
   box-shadow: none !important;
 }
@@ -222,7 +222,7 @@ textarea {
 
 .ashby-application-form-input-textarea:focus {
   outline: 0.125rem solid var(--inductive-purple) !important;
-  outline-offset: 0.125rem !important;
+  outline-offset: -2px !important;
 }
 
 /* -------------------------------------------------------
@@ -271,12 +271,12 @@ textarea {
 
   width: auto !important;
   min-width: 13.25rem !important;
-  height: 3.25rem !important;
+  height: 2rem !important;
 
   gap: 1rem !important;
 
   margin: 0 !important;
-  padding: 0 1.25rem !important;
+  padding: 0 0.75rem !important;
 
   border: var(--inductive-border) !important;
   border-radius: 0 !important;
@@ -327,7 +327,7 @@ textarea {
 
 .ashby-application-form-input-file-dropzone-upload:focus-visible {
   outline: 0.125rem solid var(--inductive-purple) !important;
-  outline-offset: 0.1875rem !important;
+  outline-offset: -2px !important;
 }
 
 /* Drag and drop text */
@@ -373,11 +373,11 @@ textarea {
   justify-content: center !important;
 
   width: auto !important;
-  min-width: 4.5rem !important;
-  height: 3rem !important;
+  min-width: unset !important;
+  height: 2rem !important;
 
   margin: 0 !important;
-  padding: 0 1rem !important;
+  padding: 0 0.75rem !important;
 
   border: var(--inductive-border) !important;
   border-radius: 0 !important;
@@ -420,7 +420,7 @@ textarea {
   z-index: 2;
 
   outline: 0.125rem solid var(--inductive-purple) !important;
-  outline-offset: 0.1875rem !important;
+  outline-offset: -2px !important;
 }
 
 /* -------------------------------------------------------
@@ -433,12 +433,12 @@ textarea {
   justify-content: flex-start !important;
 
   width: 100% !important;
-  height: 3.25rem !important;
+  height: 2rem !important;
 
   gap: 1.25rem !important;
 
   margin: 3.5rem 0 0 !important;
-  padding: 0 1.25rem !important;
+  padding: 0 0.75rem !important;
 
   border: 0 !important;
   border-radius: 0 !important;
@@ -497,7 +497,7 @@ textarea {
 
 .ashby-application-form-submit-button:focus-visible {
   outline: 0.125rem solid var(--inductive-purple) !important;
-  outline-offset: 0.1875rem !important;
+  outline-offset: -2px !important;
 }
 
 /* -------------------------------------------------------
