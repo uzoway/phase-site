@@ -2,6 +2,15 @@ const SEGMENTED_LOTTIE_MODULE_URL =
   "https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.80.0/+esm";
 
 const SEGMENTED_LOTTIE_PARTS = 8;
+const SEGMENTED_LOTTIE_MAX_DPR = 2;
+
+const SEGMENTED_FADE_MIN = 0.4;
+const SEGMENTED_FADE_MAX = 1;
+
+const SEGMENTED_FADE_VISIBLE_START = 0.4;
+const SEGMENTED_FADE_VISIBLE_FULL = 0.55;
+
+const SEGMENTED_LABS_VISIBLE_SYNC = 0.4;
 
 let segmentedLottieModulePromise = null;
 let segmentedRefreshFrame = null;
@@ -23,7 +32,6 @@ function getSegmentedLottiePart(totalFrames, partIndex) {
 
   return {
     start: start,
-
     end: Math.max(start, nextStart - 1),
   };
 }
@@ -37,9 +45,15 @@ function getSectionLottiePart(totalFrames, config, rowIndex) {
 
   return {
     start: Math.min(part.end, part.start + config.firstPartStartOffset),
-
     end: part.end,
   };
+}
+
+function getSegmentedLottieDevicePixelRatio() {
+  return Math.max(
+    1,
+    Math.min(window.devicePixelRatio || 1, SEGMENTED_LOTTIE_MAX_DPR),
+  );
 }
 
 function setSegmentedLottieFrame(record, frame) {
@@ -54,7 +68,6 @@ function setSegmentedLottieFrame(record, frame) {
   }
 
   record.currentFrame = nextFrame;
-
   record.player.setFrame(nextFrame);
 }
 
@@ -84,6 +97,11 @@ function createSegmentedLottiePlayer(host, DotLottie) {
       fit: "contain",
       align: [0.5, 0.5],
     },
+
+    renderConfig: {
+      autoResize: true,
+      devicePixelRatio: getSegmentedLottieDevicePixelRatio(),
+    },
   });
 
   return new Promise(function resolvePlayer(resolve, reject) {
@@ -96,9 +114,7 @@ function createSegmentedLottiePlayer(host, DotLottie) {
         host: host,
         canvas: canvas,
         player: player,
-
         totalFrames: Math.max(1, Math.floor(player.totalFrames)),
-
         currentFrame: null,
       });
     }
@@ -132,6 +148,28 @@ function destroySegmentedLottiePlayer(record) {
   record.host.replaceChildren();
 }
 
+function ensurePinWrapper(host) {
+  const existing = host.parentElement;
+
+  if (existing && existing.classList.contains("seg-pin-wrapper")) {
+    return existing;
+  }
+
+  const wrapper = document.createElement("div");
+
+  wrapper.className = "seg-pin-wrapper";
+
+  wrapper.style.display = "flex";
+  wrapper.style.justifyContent = "center";
+  wrapper.style.alignItems = "center";
+
+  host.parentNode.insertBefore(wrapper, host);
+
+  wrapper.appendChild(host);
+
+  return wrapper;
+}
+
 function getSegmentedSectionElements(config) {
   const rowsWrap = config.section.querySelector(config.rowsSelector);
 
@@ -147,6 +185,10 @@ function getSegmentedSectionElements(config) {
     return row.querySelector(config.lottieSelector);
   });
 
+  const contentWraps = rows.map(function getContent(row) {
+    return row.querySelector(config.contentSelector);
+  });
+
   if (
     !rowsWrap ||
     rows.length !== config.rowCount ||
@@ -155,6 +197,9 @@ function getSegmentedSectionElements(config) {
     }) ||
     hosts.some(function hasMissingHost(host) {
       return !host;
+    }) ||
+    contentWraps.some(function hasMissingContent(content) {
+      return !content;
     })
   ) {
     return null;
@@ -165,6 +210,7 @@ function getSegmentedSectionElements(config) {
     rows: rows,
     visuals: visuals,
     hosts: hosts,
+    contentWraps: contentWraps,
   };
 }
 
@@ -180,41 +226,234 @@ function createSegmentedSectionParts(totalFrames, config) {
   );
 }
 
-function createDesktopRowTriggerConfig(rows, visuals, index) {
-  const finalIndex = rows.length - 1;
+function getSegmentedVisibleRatio(element) {
+  const rect = element.getBoundingClientRect();
 
-  if (index === 0) {
-    return {
-      trigger: visuals[0],
-
-      start: "center center",
-
-      endTrigger: rows[0],
-
-      end: "bottom center",
-    };
+  if (!rect.height) {
+    return 0;
   }
 
-  if (index === finalIndex) {
+  const viewportHeight = window.innerHeight;
+
+  const visibleTop = Math.max(rect.top, 0);
+
+  const visibleBottom = Math.min(rect.bottom, viewportHeight);
+
+  const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+
+  return gsap.utils.clamp(0, 1, visibleHeight / rect.height);
+}
+
+function getSegmentedFadeOpacity(element) {
+  const rect = element.getBoundingClientRect();
+
+  const viewportHeight = window.innerHeight;
+
+  if (rect.bottom <= 0 || rect.top >= viewportHeight) {
+    return SEGMENTED_FADE_MIN;
+  }
+
+  const visibleRatio = getSegmentedVisibleRatio(element);
+
+  if (rect.top >= 0) {
+    if (visibleRatio <= SEGMENTED_FADE_VISIBLE_START) {
+      return SEGMENTED_FADE_MIN;
+    }
+
+    const maximumPossibleRatio = Math.min(1, viewportHeight / rect.height);
+
+    const fullRatio = Math.max(
+      SEGMENTED_FADE_VISIBLE_START + 0.01,
+      Math.min(SEGMENTED_FADE_VISIBLE_FULL, maximumPossibleRatio),
+    );
+
+    const progress = gsap.utils.clamp(
+      0,
+      1,
+      gsap.utils.mapRange(
+        SEGMENTED_FADE_VISIBLE_START,
+        fullRatio,
+        0,
+        1,
+        visibleRatio,
+      ),
+    );
+
+    return gsap.utils.interpolate(
+      SEGMENTED_FADE_MIN,
+      SEGMENTED_FADE_MAX,
+      progress,
+    );
+  }
+
+  if (rect.top < 0 && rect.bottom > viewportHeight) {
+    return SEGMENTED_FADE_MAX;
+  }
+
+  if (visibleRatio >= SEGMENTED_FADE_VISIBLE_START) {
+    return SEGMENTED_FADE_MAX;
+  }
+
+  const exitProgress = gsap.utils.clamp(
+    0,
+    1,
+    visibleRatio / SEGMENTED_FADE_VISIBLE_START,
+  );
+
+  return gsap.utils.interpolate(
+    SEGMENTED_FADE_MIN,
+    SEGMENTED_FADE_MAX,
+    exitProgress,
+  );
+}
+
+function setSegmentedFadeOpacity(element) {
+  gsap.set(element, {
+    opacity: getSegmentedFadeOpacity(element),
+  });
+}
+
+function buildContentFade(wrap, modeState) {
+  setSegmentedFadeOpacity(wrap);
+
+  const trigger = ScrollTrigger.create({
+    trigger: wrap,
+
+    start: "top bottom",
+    end: "bottom top",
+
+    invalidateOnRefresh: true,
+
+    onUpdate: function updateFade() {
+      setSegmentedFadeOpacity(wrap);
+    },
+
+    onEnter: function enterFade() {
+      setSegmentedFadeOpacity(wrap);
+    },
+
+    onEnterBack: function enterFadeBack() {
+      setSegmentedFadeOpacity(wrap);
+    },
+
+    onLeave: function leaveFade() {
+      gsap.set(wrap, {
+        opacity: SEGMENTED_FADE_MIN,
+      });
+    },
+
+    onLeaveBack: function leaveFadeBack() {
+      gsap.set(wrap, {
+        opacity: SEGMENTED_FADE_MIN,
+      });
+    },
+
+    onRefresh: function refreshFade() {
+      setSegmentedFadeOpacity(wrap);
+    },
+  });
+
+  modeState.triggers.push(trigger);
+}
+
+function getLabsVisibleSyncPosition(row, visibleRatio) {
+  const rowHeight = row.getBoundingClientRect().height;
+
+  const viewportHeight = window.innerHeight;
+
+  const visibleHeight = rowHeight * visibleRatio;
+
+  return viewportHeight - visibleHeight;
+}
+
+function getLabsScrubDistance(row) {
+  const rowHeight = row.getBoundingClientRect().height;
+
+  const viewportHeight = window.innerHeight;
+
+  return Math.max(80, Math.min(viewportHeight * 0.22, rowHeight * 0.16));
+}
+
+function createProcessRowScrubConfig(rows, index, syncAnchor) {
+  const last = rows.length - 1;
+
+  const start = index === 0 ? "top bottom" : syncAnchor;
+
+  if (index < last) {
     return {
       trigger: rows[index],
+      start: start,
 
-      start: "top center",
+      endTrigger: rows[index + 1],
 
-      end: "center center",
+      end: syncAnchor,
     };
   }
 
   return {
     trigger: rows[index],
+    start: start,
 
-    start: "top center",
-
-    end: "bottom center",
+    endTrigger: rows[index],
+    end: "center center",
   };
 }
 
-function cleanupSegmentedMode(state, hosts) {
+function createLabsRowScrubConfig(rows, index) {
+  const row = rows[index];
+
+  if (index === 0) {
+    return {
+      trigger: row,
+
+      start: "top bottom",
+
+      end: function getFirstLabsEnd() {
+        const position = getLabsVisibleSyncPosition(
+          row,
+          SEGMENTED_LABS_VISIBLE_SYNC,
+        );
+
+        return `top ${position}px`;
+      },
+    };
+  }
+
+  return {
+    trigger: row,
+
+    start: function getLabsStart() {
+      const position = getLabsVisibleSyncPosition(
+        row,
+        SEGMENTED_LABS_VISIBLE_SYNC,
+      );
+
+      return `top ${position}px`;
+    },
+
+    end: function getLabsEnd() {
+      return `+=${getLabsScrubDistance(row)}`;
+    },
+  };
+}
+
+function getSegmentedPinEndConfig(config, rows, contentWraps) {
+  const lastIndex = rows.length - 1;
+
+  if (config.pinEndMode === "content-center") {
+    return {
+      endTrigger: contentWraps[lastIndex],
+      end: "center center",
+    };
+  }
+
+  return {
+    endTrigger: rows[lastIndex],
+    end: "bottom bottom",
+  };
+}
+
+function cleanupSegmentedMode(state, hosts, contentWraps) {
   state.cancelled = true;
 
   state.eventCleanups.forEach(function runCleanup(cleanup) {
@@ -231,6 +470,10 @@ function cleanupSegmentedMode(state, hosts) {
 
   gsap.set(hosts, {
     clearProps: "opacity,visibility,transform",
+  });
+
+  gsap.set(contentWraps, {
+    clearProps: "opacity",
   });
 }
 
@@ -256,7 +499,7 @@ function initSegmentedLottieSection(config, DotLottie) {
     return;
   }
 
-  const { rows, visuals, hosts } = elements;
+  const { rows, visuals, hosts, contentWraps } = elements;
 
   const mobilePlayed = new Set();
 
@@ -290,7 +533,7 @@ function initSegmentedLottieSection(config, DotLottie) {
       }
 
       return function cleanupMode() {
-        cleanupSegmentedMode(state, hosts);
+        cleanupSegmentedMode(state, hosts, contentWraps);
       };
 
       async function setupDesktopMode(modeState) {
@@ -300,6 +543,10 @@ function initSegmentedLottieSection(config, DotLottie) {
 
         gsap.set(hosts.slice(1), {
           autoAlpha: 0,
+        });
+
+        gsap.set(contentWraps, {
+          opacity: SEGMENTED_FADE_MIN,
         });
 
         try {
@@ -317,20 +564,26 @@ function initSegmentedLottieSection(config, DotLottie) {
 
           setSegmentedLottieFrame(record, parts[0].start);
 
+          const pinWrapper = ensurePinWrapper(hosts[0]);
+
+          const pinEndConfig = getSegmentedPinEndConfig(
+            config,
+            rows,
+            contentWraps,
+          );
+
           const pinTrigger = ScrollTrigger.create({
-            trigger: visuals[0],
+            trigger: pinWrapper,
 
             start: "center center",
 
-            endTrigger: rows[rows.length - 1],
+            endTrigger: pinEndConfig.endTrigger,
 
-            end: "center center",
+            end: pinEndConfig.end,
 
-            pin: hosts[0],
+            pin: pinWrapper,
 
             pinSpacing: false,
-
-            anticipatePin: 1,
 
             invalidateOnRefresh: true,
           });
@@ -340,11 +593,10 @@ function initSegmentedLottieSection(config, DotLottie) {
           rows.forEach(function createRowTrigger(row, index) {
             const part = parts[index];
 
-            const triggerConfig = createDesktopRowTriggerConfig(
-              rows,
-              visuals,
-              index,
-            );
+            const triggerConfig =
+              config.scrubMode === "visible"
+                ? createLabsRowScrubConfig(rows, index)
+                : createProcessRowScrubConfig(rows, index, config.syncAnchor);
 
             const trigger = ScrollTrigger.create({
               ...triggerConfig,
@@ -381,6 +633,10 @@ function initSegmentedLottieSection(config, DotLottie) {
             modeState.triggers.push(trigger);
           });
 
+          contentWraps.forEach(function createContentFade(wrap) {
+            buildContentFade(wrap, modeState);
+          });
+
           scheduleSegmentedRefresh();
         } catch (error) {
           console.error(`${config.name} Lottie failed to load:`, error);
@@ -390,6 +646,10 @@ function initSegmentedLottieSection(config, DotLottie) {
       async function setupMobileMode(modeState) {
         gsap.set(hosts, {
           autoAlpha: 1,
+        });
+
+        gsap.set(contentWraps, {
+          opacity: 1,
         });
 
         for (let index = 0; index < config.rowCount; index += 1) {
@@ -477,6 +737,10 @@ function initSegmentedLottieSection(config, DotLottie) {
           autoAlpha: 1,
         });
 
+        gsap.set(contentWraps, {
+          opacity: 1,
+        });
+
         for (let index = 0; index < config.rowCount; index += 1) {
           if (modeState.cancelled) {
             return;
@@ -561,11 +825,19 @@ async function initSegmentedLottieSections() {
 
           lottieSelector: "[data-process-lottie]",
 
+          contentSelector: ".process_row-content-wrap",
+
           rowCount: 3,
 
           startPart: 0,
 
           firstPartStartOffset: 0,
+
+          scrubMode: "between",
+
+          syncAnchor: "center bottom",
+
+          pinEndMode: "content-center",
         },
 
         DotLottie,
@@ -587,11 +859,17 @@ async function initSegmentedLottieSections() {
 
           lottieSelector: "[data-labs-lottie]",
 
+          contentSelector: ".labs_row-content-wrap",
+
           rowCount: 5,
 
           startPart: 3,
 
           firstPartStartOffset: 70,
+
+          scrubMode: "visible",
+
+          pinEndMode: "row-bottom",
         },
 
         DotLottie,
