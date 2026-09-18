@@ -1,29 +1,115 @@
-/* -- PROCESS LOTTIE STEP ANIMATION -- */
+/* -- Hero Image Sequence -- */
+function initHeroSequence() {
+  const canvas = document.querySelector('[data-canvas-seq="hero"]');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  const config = {
+    frames: 34,
+    fps: 30,
+    url: "https://cdn.jsdelivr.net/gh/uzoway/phase-site@main/Phase%20Header/phase-header",
+    ext: ".webp",
+  };
+
+  const images = [];
+  let loaded = 0;
+  let frame = 0;
+  let lastTime = 0;
+  const interval = 1000 / config.fps;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const parent = canvas.parentElement;
+    canvas.width = parent.clientWidth * dpr;
+    canvas.height = parent.clientHeight * dpr;
+    canvas.style.width = `${parent.clientWidth}px`;
+    canvas.style.height = `${parent.clientHeight}px`;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    draw(images[frame]);
+  }
+
+  function draw(img) {
+    if (!img) return;
+    const scale = Math.max(
+      canvas.width / img.width,
+      canvas.height / img.height,
+    );
+    const x = canvas.width / 2 - (img.width / 2) * scale;
+    const y = canvas.height / 2 - (img.height / 2) * scale;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+  }
+
+  function loop(time) {
+    requestAnimationFrame(loop);
+    const delta = time - lastTime;
+    if (delta > interval) {
+      frame = (frame + 1) % config.frames;
+      draw(images[frame]);
+      lastTime = time - (delta % interval);
+    }
+  }
+
+  for (let i = 0; i < config.frames; i++) {
+    const img = new Image();
+    img.src = `${config.url}${i.toString().padStart(2, "0")}${config.ext}`;
+    img.onload = function () {
+      loaded++;
+      if (loaded === config.frames) {
+        resize();
+        window.addEventListener("resize", resize);
+        requestAnimationFrame(loop);
+      }
+    };
+    images.push(img);
+  }
+}
+
+/* -- PROCESS VIDEO STEP ANIMATION -- */
 const SHOW_STEP_INDICATORS = true;
+const PROCESS_TRANSITION_SIDE_RATIO = 0.1;
+const PROCESS_SCRUB_FPS = 30;
 
 function initProcessAnimation() {
   const section = document.querySelector('[data-process="section"]');
   if (!section) return Promise.resolve();
 
-  const texts = gsap.utils.toArray('[data-process$="-text"]');
-  const videoMounts = gsap.utils.toArray('[data-process$="-video"]');
-  const progressBar = document.querySelector('[data-process="progress-bar"]');
-  const progressWrap = document.querySelector(".process_progress-bar-wrap");
-
   if (
-    !texts.length ||
-    !videoMounts.length ||
-    texts.length !== videoMounts.length
+    typeof gsap === "undefined" ||
+    typeof ScrollTrigger === "undefined" ||
+    typeof THREE === "undefined"
   ) {
     return Promise.resolve();
   }
 
-  const total = texts.length;
-  const spansPerText = texts.map((t) =>
-    t.querySelectorAll(".process_description-span"),
-  );
+  if (section.dataset.processInitialized === "true") {
+    return Promise.resolve();
+  }
 
-  gsap.set([texts, videoMounts], { willChange: "transform, opacity" });
+  gsap.registerPlugin(ScrollTrigger);
+
+  const texts = gsap.utils.toArray('[data-process$="-text"]');
+  const videoMounts = gsap.utils.toArray('[data-process$="-video"]');
+  const progressBar = document.querySelector('[data-process="progress-bar"]');
+  const progressWrap = progressBar?.parentElement;
+
+  if (
+    !texts.length ||
+    !videoMounts.length ||
+    texts.length !== videoMounts.length ||
+    !progressBar ||
+    !progressWrap
+  ) {
+    return Promise.resolve();
+  }
+
+  section.dataset.processInitialized = "true";
+
+  const total = texts.length;
 
   const stepNodes = SHOW_STEP_INDICATORS
     ? buildStepNodes(progressWrap, total)
@@ -34,6 +120,7 @@ function initProcessAnimation() {
       mount.getAttribute("data-video-rotation") || "0",
       10,
     );
+
     return createDualScene(
       mount,
       mount.getAttribute("data-video-src"),
@@ -41,9 +128,59 @@ function initProcessAnimation() {
     );
   });
 
-  const ready = Promise.all(scenes.map((s) => s.ready));
+  return Promise.all(scenes.map((scene) => scene.ready)).then(() => {
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
 
-  return ready.then(() => {
+    if (prefersReducedMotion) {
+      const isMobile = window.matchMedia("(max-width: 990px)").matches;
+
+      positionStepNodes(stepNodes, isMobile, total);
+
+      gsap.set(texts, {
+        autoAlpha: 0,
+        y: 0,
+      });
+
+      gsap.set(texts[0], {
+        autoAlpha: 1,
+      });
+
+      gsap.set(videoMounts, {
+        autoAlpha: 0,
+      });
+
+      gsap.set(videoMounts[0], {
+        autoAlpha: 1,
+        zIndex: 1,
+      });
+
+      gsap.set(progressBar, {
+        scaleX: isMobile ? 0 : 1,
+        scaleY: isMobile ? 1 : 0,
+        transformOrigin: isMobile ? "left center" : "top center",
+      });
+
+      gsap.set(stepNodes, {
+        autoAlpha: 0.25,
+        scale: 0.6,
+      });
+
+      if (stepNodes[0]) {
+        gsap.set(stepNodes[0], {
+          autoAlpha: 1,
+          scale: 1,
+        });
+      }
+
+      scenes[0].setVisualState(0, 0, 0);
+      scenes[0].seek(0);
+      scenes[0].render();
+
+      return;
+    }
+
     const mm = gsap.matchMedia();
 
     mm.add(
@@ -53,24 +190,28 @@ function initProcessAnimation() {
       },
       (context) => {
         const { isMobile } = context.conditions;
-        const stepDuration = 2;
-        const totalDuration = (total - 1) * stepDuration;
+
         const barAxis = isMobile ? "scaleX" : "scaleY";
         const barOrigin = isMobile ? "left center" : "top center";
-        const TRANSITION_DURATION = 1.5;
 
-        gsap.set(texts, { autoAlpha: 0, y: 15 });
-        gsap.set(texts[0], { autoAlpha: 1, y: 0 });
-        spansPerText.forEach((spans, i) =>
-          gsap.set(spans, { autoAlpha: i === 0 ? 1 : 0 }),
-        );
+        const stepSlot = 1 / total;
+        const transitionSide = stepSlot * PROCESS_TRANSITION_SIDE_RATIO;
+
+        const finalStageStart = (total - 1) / total;
+
+        positionStepNodes(stepNodes, isMobile, total);
+
+        gsap.set(texts, {
+          autoAlpha: 0,
+          y: 15,
+          willChange: "transform, opacity",
+        });
 
         gsap.set(videoMounts, {
           autoAlpha: 0,
-          scale: 1.05,
-          zIndex: (i) => total - i,
+          zIndex: 0,
+          willChange: "opacity",
         });
-        gsap.set(videoMounts[0], { autoAlpha: 1, scale: 1 });
 
         gsap.set(progressBar, {
           scaleX: isMobile ? 0 : 1,
@@ -78,232 +219,286 @@ function initProcessAnimation() {
           transformOrigin: barOrigin,
         });
 
-        positionStepNodes(stepNodes, isMobile, total);
-        gsap.set(stepNodes, { autoAlpha: 0.25, scale: 0.6 });
-        gsap.set(stepNodes[0], { autoAlpha: 1, scale: 1 });
-
-        scenes.forEach((scene) => {
-          scene.setTransition(0);
-          scene.play();
+        gsap.set(stepNodes, {
+          autoAlpha: 0.25,
+          scale: 0.6,
         });
 
-        let activeStep = 0;
-        let activeVideoTl = null;
-
-        function triggerVideoTransition(from, to) {
-          if (activeVideoTl) activeVideoTl.kill();
-          activeVideoTl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
-
-          // Reset non-participating scenes
-          videoMounts.forEach((mount, i) => {
-            if (i !== from && i !== to) {
-              gsap.set(mount, { autoAlpha: 0 });
-              scenes[i].setTransition(0);
-            }
-          });
-
-          const direction = to > from ? 1 : -1;
-
-          if (direction === 1) {
-            // FORWARD: outgoing scatters and dissolves, incoming gathers in
-            gsap.set(videoMounts[to], { zIndex: 1, scale: 1, autoAlpha: 0 });
-            gsap.set(videoMounts[from], { zIndex: 2 });
-            scenes[to].setTransition(1);
-
-            // Outgoing: ramp into particle mode, then scatter out
-            activeVideoTl.to(
-              scenes[from].uniforms.uTransition,
-              {
-                value: 1,
-                duration: TRANSITION_DURATION * 0.4,
-                ease: "power2.in",
-              },
-              0,
-            );
-            activeVideoTl.to(
-              scenes[from].uniforms.uScatter,
-              {
-                value: 1,
-                duration: TRANSITION_DURATION * 0.7,
-                ease: "power2.in",
-              },
-              TRANSITION_DURATION * 0.2,
-            );
-
-            // Incoming: appear in particle mode, gather to native, then settle
-            activeVideoTl.to(
-              videoMounts[to],
-              { autoAlpha: 1, duration: TRANSITION_DURATION * 0.5 },
-              TRANSITION_DURATION * 0.3,
-            );
-            activeVideoTl.to(
-              scenes[to].uniforms.uScatter,
-              {
-                value: 0,
-                duration: TRANSITION_DURATION * 0.7,
-                ease: "power2.out",
-              },
-              TRANSITION_DURATION * 0.3,
-            );
-            activeVideoTl.to(
-              scenes[to].uniforms.uTransition,
-              {
-                value: 0,
-                duration: TRANSITION_DURATION * 0.4,
-                ease: "power2.out",
-              },
-              TRANSITION_DURATION * 0.6,
-            );
-
-            activeVideoTl.to(
-              videoMounts[from],
-              { autoAlpha: 0, duration: 0.2 },
-              TRANSITION_DURATION - 0.2,
-            );
-          } else {
-            gsap.set(videoMounts[to], { zIndex: 2, scale: 1, autoAlpha: 1 });
-            gsap.set(videoMounts[from], { zIndex: 1, autoAlpha: 1 });
-            scenes[to].setTransition(1);
-            scenes[to].uniforms.uScatter.value = 1;
-
-            // Incoming scene gathers in from scattered state
-            activeVideoTl.to(
-              scenes[to].uniforms.uScatter,
-              {
-                value: 0,
-                duration: TRANSITION_DURATION * 0.8,
-                ease: "power2.out",
-              },
-              TRANSITION_DURATION * 0.2,
-            );
-            activeVideoTl.to(
-              scenes[to].uniforms.uTransition,
-              {
-                value: 0,
-                duration: TRANSITION_DURATION * 0.4,
-                ease: "power2.out",
-              },
-              TRANSITION_DURATION * 0.5,
-            );
-
-            activeVideoTl.to(
-              videoMounts[from],
-              { autoAlpha: 0, duration: TRANSITION_DURATION * 0.6 },
-              TRANSITION_DURATION * 0.33,
-            );
-          }
+        function clamp(value, min = 0, max = 1) {
+          return Math.min(Math.max(value, min), max);
         }
 
-        const tl = gsap.timeline({
-          defaults: { ease: "none" },
-          scrollTrigger: {
-            trigger: section,
-            start: "top top",
-            end: () => `+=${total * 100}%`,
-            pin: true,
-            scrub: 0.7,
-            invalidateOnRefresh: true,
-            refreshPriority: 1,
-            onUpdate: (self) => {
-              const targetStep = Math.round(self.progress * (total - 1));
+        function smoothstep(value) {
+          const t = clamp(value);
+          return t * t * (3 - 2 * t);
+        }
 
-              if (targetStep !== activeStep) {
-                triggerVideoTransition(activeStep, targetStep);
-                activeStep = targetStep;
-              }
-            },
+        function getTransition(progress) {
+          for (let to = 1; to < total; to++) {
+            const center = to / total;
+            const start = center - transitionSide;
+            const end = center + transitionSide;
+
+            if (progress >= start && progress <= end) {
+              return {
+                from: to - 1,
+                to,
+                center,
+                start,
+                end,
+                progress: clamp((progress - start) / (end - start)),
+              };
+            }
+          }
+
+          return null;
+        }
+
+        function getStableStep(progress) {
+          return Math.min(total - 1, Math.floor(clamp(progress) * total));
+        }
+
+        function getStableVideoProgress(step, progress) {
+          const start = step === 0 ? 0 : step / total + transitionSide;
+
+          const end =
+            step === total - 1 ? 1 : (step + 1) / total - transitionSide;
+
+          if (end <= start) return 0;
+
+          return clamp((progress - start) / (end - start));
+        }
+
+        function hideTexts() {
+          gsap.set(texts, {
+            autoAlpha: 0,
+            y: 15,
+          });
+        }
+
+        function showStableText(step) {
+          hideTexts();
+
+          gsap.set(texts[step], {
+            autoAlpha: 1,
+            y: 0,
+          });
+        }
+
+        function showTransitionText(from, to, transitionProgress) {
+          const eased = smoothstep(transitionProgress);
+
+          hideTexts();
+
+          gsap.set(texts[from], {
+            autoAlpha: 1 - eased,
+            y: -12 * eased,
+          });
+
+          gsap.set(texts[to], {
+            autoAlpha: eased,
+            y: 12 * (1 - eased),
+          });
+        }
+
+        function hideVideoMounts() {
+          gsap.set(videoMounts, {
+            autoAlpha: 0,
+            zIndex: 0,
+          });
+        }
+
+        function showVideoMount(index, opacity = 1, zIndex = 1) {
+          gsap.set(videoMounts[index], {
+            autoAlpha: opacity,
+            zIndex,
+          });
+        }
+
+        function updateProgress(progress) {
+          const barProgress =
+            finalStageStart > 0 ? clamp(progress / finalStageStart) : 1;
+
+          gsap.set(progressBar, {
+            [barAxis]: barProgress,
+          });
+
+          stepNodes.forEach((node, index) => {
+            const nodePosition = total === 1 ? 0 : index / (total - 1);
+
+            const completed = barProgress + 0.0001 >= nodePosition;
+
+            gsap.set(node, {
+              autoAlpha: completed ? 1 : 0.25,
+              scale: completed ? 1 : 0.6,
+            });
+          });
+        }
+
+        function renderStableStep(step, progress) {
+          const videoProgress = getStableVideoProgress(step, progress);
+
+          hideVideoMounts();
+
+          showVideoMount(step, 1, 2);
+
+          showStableText(step);
+
+          scenes[step].setVisualState(0, 0, step * 4 + videoProgress * 2);
+
+          scenes[step].seek(videoProgress);
+
+          scenes[step].render();
+        }
+
+        function renderParticleTransition(transition) {
+          const { from, to, progress: transitionProgress } = transition;
+
+          const eased = smoothstep(transitionProgress);
+
+          const flowTime = from * 4 + eased * 3;
+
+          hideVideoMounts();
+
+          showVideoMount(from, 1, 2);
+
+          showVideoMount(to, 1, 1);
+
+          showTransitionText(from, to, transitionProgress);
+
+          scenes[from].seek(1);
+          scenes[to].seek(0);
+
+          scenes[from].setVisualState(eased, eased, flowTime);
+
+          scenes[to].setVisualState(1 - eased, 1 - eased, flowTime);
+
+          scenes[from].render();
+          scenes[to].render();
+        }
+
+        function renderFinalCrossfade(transition) {
+          const { from, to, progress: transitionProgress } = transition;
+
+          const eased = smoothstep(transitionProgress);
+
+          hideVideoMounts();
+
+          showVideoMount(from, 1 - eased, 2);
+
+          showVideoMount(to, eased, 1);
+
+          showTransitionText(from, to, transitionProgress);
+
+          scenes[from].seek(1);
+          scenes[to].seek(0);
+
+          scenes[from].setVisualState(0, 0, from * 4);
+
+          scenes[to].setVisualState(0, 0, to * 4);
+
+          scenes[from].render();
+          scenes[to].render();
+        }
+
+        function updateProcessState(rawProgress) {
+          const progress = clamp(rawProgress);
+
+          updateProgress(progress);
+
+          const transition = getTransition(progress);
+
+          if (!transition) {
+            const step = getStableStep(progress);
+
+            renderStableStep(step, progress);
+
+            return;
+          }
+
+          const isFinalTransition = transition.to === total - 1;
+
+          if (isFinalTransition) {
+            renderFinalCrossfade(transition);
+
+            return;
+          }
+
+          renderParticleTransition(transition);
+        }
+
+        const processTrigger = ScrollTrigger.create({
+          trigger: section,
+          start: "top top",
+          end: () => `+=${total * 100}%`,
+          pin: true,
+          pinSpacing: true,
+          anticipatePin: 1,
+          invalidateOnRefresh: true,
+          refreshPriority: 1,
+
+          onUpdate: (self) => {
+            updateProcessState(self.progress);
+          },
+
+          onRefresh: (self) => {
+            scenes.forEach((scene) => scene.refresh());
+
+            updateProcessState(self.progress);
           },
         });
 
-        tl.to(progressBar, { [barAxis]: 1, duration: totalDuration }, 0);
+        scenes.forEach((scene) => scene.refresh());
 
-        stepNodes.forEach((node, i) => {
-          if (i > 0) {
-            tl.to(
-              node,
-              { autoAlpha: 1, scale: 1, duration: 0.35 },
-              i * stepDuration - 0.35,
-            );
-          }
-        });
-
-        texts.forEach((text, i) => {
-          if (i < total - 1) {
-            const handoff = i * stepDuration + stepDuration / 2;
-            const currentSpans = spansPerText[i];
-            const nextText = texts[i + 1];
-            const nextSpans = spansPerText[i + 1];
-
-            tl.to(
-              currentSpans,
-              { autoAlpha: 0, duration: 0.3, stagger: 0.04 },
-              handoff - 0.5,
-            );
-            tl.to(text, { y: -15, autoAlpha: 0, duration: 0.4 }, handoff - 0.5);
-            tl.fromTo(
-              nextText,
-              { y: 15 },
-              { y: 0, autoAlpha: 1, duration: 0.4 },
-              handoff - 0.1,
-            );
-            tl.to(
-              nextSpans,
-              { autoAlpha: 1, duration: 0.4, stagger: 0.04 },
-              handoff,
-            );
-          }
-        });
-
-        const onRefresh = () => {
-          scenes.forEach((s) => s.refresh());
-        };
-        ScrollTrigger.addEventListener("refresh", onRefresh);
-
-        // Initial sync after timeline + ScrollTrigger are built
-        scenes.forEach((s) => s.refresh());
+        updateProcessState(processTrigger.progress);
 
         return () => {
-          ScrollTrigger.removeEventListener("refresh", onRefresh);
-          scenes.forEach((s) => s.pause());
+          processTrigger.kill();
+
+          scenes.forEach((scene) => scene.destroy());
+
+          gsap.set(texts, {
+            clearProps: "opacity,visibility,transform,willChange",
+          });
+
+          gsap.set(videoMounts, {
+            clearProps: "opacity,visibility,zIndex,willChange",
+          });
         };
       },
     );
-
-    mm.add("(prefers-reduced-motion: reduce)", () => {
-      gsap.set(texts, { autoAlpha: 0, y: 0 });
-      gsap.set(texts[0], { autoAlpha: 1 });
-      spansPerText.forEach((spans, i) =>
-        gsap.set(spans, { autoAlpha: i === 0 ? 1 : 0 }),
-      );
-      gsap.set(videoMounts, { autoAlpha: 0 });
-      gsap.set(videoMounts[0], { autoAlpha: 1 });
-      scenes.forEach((scene, i) => {
-        scene.setTransition(0);
-        if (i === 0) scene.play();
-      });
-    });
   });
 }
 
 function createDualScene(mount, videoSrc, rotation) {
   const video = document.createElement("video");
+
   video.src = videoSrc;
   video.crossOrigin = "anonymous";
   video.muted = true;
-  video.loop = true;
+  video.loop = false;
   video.playsInline = true;
-  video.autoplay = true;
-  video.setAttribute("playsinline", "");
-  video.setAttribute("autoplay", "");
+  video.autoplay = false;
   video.preload = "auto";
+
+  video.setAttribute("playsinline", "");
+
+  video.pause();
   video.load();
 
   const scene = new THREE.Scene();
+
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+  });
+
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
   renderer.setClearColor(0x000000, 0);
+
   mount.appendChild(renderer.domElement);
 
   Object.assign(renderer.domElement.style, {
@@ -313,22 +508,47 @@ function createDualScene(mount, videoSrc, rotation) {
   });
 
   const texture = new THREE.VideoTexture(video);
+
   texture.minFilter = THREE.LinearFilter;
+
   texture.magFilter = THREE.LinearFilter;
+
   texture.format = THREE.RGBAFormat;
+
   texture.flipY = true;
 
   const uniforms = {
-    uTexture: { value: texture },
-    uTransition: { value: 0 },
-    uScatter: { value: 0 },
-    uTime: { value: 0 },
-    uContainerAspect: { value: 1.0 },
-    uVideoAspect: { value: 1.0 },
-    uRotation: { value: (rotation * Math.PI) / 180 },
+    uTexture: {
+      value: texture,
+    },
+
+    uTransition: {
+      value: 0,
+    },
+
+    uScatter: {
+      value: 0,
+    },
+
+    uTime: {
+      value: 0,
+    },
+
+    uContainerAspect: {
+      value: 1,
+    },
+
+    uVideoAspect: {
+      value: 1,
+    },
+
+    uRotation: {
+      value: (rotation * Math.PI) / 180,
+    },
   };
 
   const videoGeometry = new THREE.PlaneGeometry(2, 2);
+
   const videoMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: VIDEO_VERT,
@@ -336,174 +556,393 @@ function createDualScene(mount, videoSrc, rotation) {
     transparent: true,
     depthWrite: false,
   });
+
   const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+
   scene.add(videoMesh);
 
   const GRID_SIZE = 320;
+
   const particleGeometry = buildParticleGeometry(GRID_SIZE);
+
   const particleMaterial = new THREE.ShaderMaterial({
     uniforms: {
       ...uniforms,
-      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
-      uSize: { value: 2.5 },
+
+      uPixelRatio: {
+        value: Math.min(window.devicePixelRatio, 2),
+      },
+
+      uSize: {
+        value: 2.5,
+      },
     },
+
     vertexShader: PARTICLE_VERT,
+
     fragmentShader: PARTICLE_FRAG,
+
     transparent: true,
     depthWrite: false,
     blending: THREE.NormalBlending,
   });
 
   particleMaterial.uniforms.uTexture = uniforms.uTexture;
+
   particleMaterial.uniforms.uTransition = uniforms.uTransition;
+
   particleMaterial.uniforms.uScatter = uniforms.uScatter;
+
   particleMaterial.uniforms.uTime = uniforms.uTime;
+
   particleMaterial.uniforms.uContainerAspect = uniforms.uContainerAspect;
+
   particleMaterial.uniforms.uVideoAspect = uniforms.uVideoAspect;
+
   particleMaterial.uniforms.uRotation = uniforms.uRotation;
 
   const particles = new THREE.Points(particleGeometry, particleMaterial);
+
   scene.add(particles);
 
-  function updateAspect() {
-    const w = mount.clientWidth;
-    const h = mount.clientHeight;
-    if (w === 0 || h === 0) return;
+  const frameDuration = 1 / PROCESS_SCRUB_FPS;
 
-    uniforms.uContainerAspect.value = w / h;
+  let desiredVideoProgress = 0;
+  let requestedTime = null;
+  let seekInFlight = false;
+  let seekRafId = null;
+  let videoFrameCallbackId = null;
+  let destroyed = false;
+
+  function clamp(value, min = 0, max = 1) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function getSafeEnd() {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      return 0;
+    }
+
+    return Math.max(0, video.duration - frameDuration);
+  }
+
+  function getDesiredTime() {
+    const safeEnd = getSafeEnd();
+
+    if (!safeEnd) return 0;
+
+    const rawTime = desiredVideoProgress * safeEnd;
+
+    const quantizedTime = Math.round(rawTime / frameDuration) * frameDuration;
+
+    return clamp(quantizedTime, 0, safeEnd);
+  }
+
+  function updateAspect() {
+    const width = mount.clientWidth;
+
+    const height = mount.clientHeight;
+
+    if (!width || !height) {
+      return;
+    }
+
+    uniforms.uContainerAspect.value = width / height;
 
     if (video.videoWidth && video.videoHeight) {
       const isRotated90 = rotation === 90 || rotation === 270;
+
       uniforms.uVideoAspect.value = isRotated90
         ? video.videoHeight / video.videoWidth
         : video.videoWidth / video.videoHeight;
     }
   }
 
-  function resize() {
-    const w = mount.clientWidth;
-    if (w === 0) return;
+  function render() {
+    if (destroyed) return;
 
-    const h = w;
-    mount.style.height = `${h}px`;
-
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(w, h, false);
-    updateAspect();
+    renderer.render(scene, camera);
   }
+
+  function renderDecodedFrame() {
+    if (destroyed) return;
+
+    if (typeof video.requestVideoFrameCallback === "function") {
+      if (
+        videoFrameCallbackId !== null &&
+        typeof video.cancelVideoFrameCallback === "function"
+      ) {
+        video.cancelVideoFrameCallback(videoFrameCallbackId);
+      }
+
+      videoFrameCallbackId = video.requestVideoFrameCallback(() => {
+        videoFrameCallbackId = null;
+
+        texture.needsUpdate = true;
+
+        render();
+      });
+
+      return;
+    }
+
+    texture.needsUpdate = true;
+    render();
+  }
+
+  function scheduleSeek() {
+    if (destroyed || seekRafId !== null) {
+      return;
+    }
+
+    seekRafId = requestAnimationFrame(flushSeek);
+  }
+
+  function flushSeek() {
+    seekRafId = null;
+
+    if (destroyed) return;
+
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      return;
+    }
+
+    if (seekInFlight || video.seeking) {
+      return;
+    }
+
+    const targetTime = getDesiredTime();
+
+    const currentTime = video.currentTime;
+
+    if (Math.abs(targetTime - currentTime) < frameDuration * 0.5) {
+      render();
+      return;
+    }
+
+    seekInFlight = true;
+    requestedTime = targetTime;
+
+    try {
+      video.currentTime = targetTime;
+    } catch {
+      seekInFlight = false;
+      requestedTime = null;
+      render();
+    }
+  }
+
+  function handleSeeked() {
+    if (destroyed) return;
+
+    seekInFlight = false;
+
+    renderDecodedFrame();
+
+    const latestTarget = getDesiredTime();
+
+    if (
+      requestedTime === null ||
+      Math.abs(latestTarget - requestedTime) >= frameDuration * 0.5
+    ) {
+      scheduleSeek();
+    }
+  }
+
+  function seek(progress) {
+    desiredVideoProgress = clamp(progress);
+
+    scheduleSeek();
+  }
+
+  function setVisualState(transition, scatter, time) {
+    uniforms.uTransition.value = clamp(transition);
+
+    uniforms.uScatter.value = clamp(scatter);
+
+    uniforms.uTime.value = time;
+  }
+
+  function resize() {
+    const width = mount.clientWidth;
+
+    if (!width) return;
+
+    const height = width;
+
+    const pixelRatio = Math.min(window.devicePixelRatio, 2);
+
+    mount.style.height = `${height}px`;
+
+    renderer.setPixelRatio(pixelRatio);
+
+    renderer.setSize(width, height, false);
+
+    particleMaterial.uniforms.uPixelRatio.value = pixelRatio;
+
+    updateAspect();
+    render();
+  }
+
+  function handleMetadata() {
+    updateAspect();
+
+    desiredVideoProgress = 0;
+
+    scheduleSeek();
+    render();
+  }
+
+  video.addEventListener("loadedmetadata", handleMetadata);
+
+  video.addEventListener("loadeddata", handleMetadata);
+
+  video.addEventListener("seeked", handleSeeked);
+
+  const resizeObserver = new ResizeObserver(resize);
+
+  resizeObserver.observe(mount);
 
   resize();
 
-  video.addEventListener("loadedmetadata", updateAspect);
-
-  const ro = new ResizeObserver(resize);
-  ro.observe(mount);
-
-  let rafId = null;
-  let playing = false;
-  const clock = new THREE.Clock();
-
-  function tick() {
-    uniforms.uTime.value = clock.getElapsedTime();
-    renderer.render(scene, camera);
-    rafId = requestAnimationFrame(tick);
-  }
-
-  function play() {
-    if (playing) return;
-    playing = true;
-    video.play().catch(() => {});
-    clock.start();
-    rafId = requestAnimationFrame(tick);
-  }
-
-  function pause() {
-    playing = false;
-    if (rafId) cancelAnimationFrame(rafId);
-    video.pause();
-  }
-
   const ready = new Promise((resolve) => {
-    const failsafe = setTimeout(() => resolve(), 3000);
+    const failsafe = setTimeout(resolve, 3000);
+
     if (video.readyState >= 2) {
       clearTimeout(failsafe);
+
       resolve();
-    } else {
-      video.addEventListener(
-        "loadeddata",
-        () => {
-          clearTimeout(failsafe);
-          resolve();
-        },
-        { once: true },
-      );
+      return;
     }
+
+    video.addEventListener(
+      "loadeddata",
+      () => {
+        clearTimeout(failsafe);
+
+        resolve();
+      },
+      {
+        once: true,
+      },
+    );
   });
 
+  function destroy() {
+    destroyed = true;
+
+    if (seekRafId !== null) {
+      cancelAnimationFrame(seekRafId);
+    }
+
+    if (
+      videoFrameCallbackId !== null &&
+      typeof video.cancelVideoFrameCallback === "function"
+    ) {
+      video.cancelVideoFrameCallback(videoFrameCallbackId);
+    }
+
+    resizeObserver.disconnect();
+
+    video.removeEventListener("loadedmetadata", handleMetadata);
+
+    video.removeEventListener("loadeddata", handleMetadata);
+
+    video.removeEventListener("seeked", handleSeeked);
+
+    video.pause();
+
+    videoMaterial.dispose();
+    particleMaterial.dispose();
+
+    videoGeometry.dispose();
+    particleGeometry.dispose();
+
+    texture.dispose();
+    renderer.dispose();
+  }
+
   return {
-    uniforms,
-    setTransition: (v) => {
-      uniforms.uTransition.value = v;
-    },
-    refresh: () => resize(),
-    play,
-    pause,
     ready,
+    seek,
+    render,
+    refresh: resize,
+    setVisualState,
+    destroy,
   };
 }
 
 function buildParticleGeometry(gridSize) {
   const count = gridSize * gridSize;
+
   const positions = new Float32Array(count * 3);
+
   const uvs = new Float32Array(count * 2);
+
   const randoms = new Float32Array(count * 3);
 
-  let i = 0;
+  let index = 0;
+
   for (let y = 0; y < gridSize; y++) {
     for (let x = 0; x < gridSize; x++) {
-      positions[i * 3 + 0] = (x / (gridSize - 1)) * 2 - 1;
-      positions[i * 3 + 1] = (y / (gridSize - 1)) * 2 - 1;
-      positions[i * 3 + 2] = 0;
+      positions[index * 3] = (x / (gridSize - 1)) * 2 - 1;
 
-      uvs[i * 2 + 0] = x / (gridSize - 1);
-      uvs[i * 2 + 1] = y / (gridSize - 1);
+      positions[index * 3 + 1] = (y / (gridSize - 1)) * 2 - 1;
 
-      randoms[i * 3 + 0] = Math.random();
-      randoms[i * 3 + 1] = Math.random();
-      randoms[i * 3 + 2] = Math.random();
-      i++;
+      positions[index * 3 + 2] = 0;
+
+      uvs[index * 2] = x / (gridSize - 1);
+
+      uvs[index * 2 + 1] = y / (gridSize - 1);
+
+      randoms[index * 3] = Math.random();
+
+      randoms[index * 3 + 1] = Math.random();
+
+      randoms[index * 3 + 2] = Math.random();
+
+      index++;
     }
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute("aUv", new THREE.BufferAttribute(uvs, 2));
-  geo.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 3));
-  return geo;
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+  geometry.setAttribute("aUv", new THREE.BufferAttribute(uvs, 2));
+
+  geometry.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 3));
+
+  return geometry;
 }
 
 const VIDEO_VERT = `
   varying vec2 vUv;
+
   uniform float uContainerAspect;
   uniform float uVideoAspect;
   uniform float uRotation;
 
-  vec2 rotate2D(vec2 v, float angle) {
+  vec2 rotate2D(vec2 value, float angle) {
     float c = cos(angle);
     float s = sin(angle);
-    return mat2(c, -s, s, c) * v;
+    return mat2(c, -s, s, c) * value;
   }
 
   void main() {
-    vec2 uv = uv - 0.5;
+    vec2 sampleUv = uv - 0.5;
+
     if (uContainerAspect > uVideoAspect) {
-      uv.y *= uVideoAspect / uContainerAspect;
+      sampleUv.y *= uVideoAspect / uContainerAspect;
     } else {
-      uv.x *= uContainerAspect / uVideoAspect;
+      sampleUv.x *= uContainerAspect / uVideoAspect;
     }
-    uv = rotate2D(uv, uRotation);
-    uv += 0.5;
-    vUv = uv;
+
+    sampleUv = rotate2D(sampleUv, uRotation);
+    sampleUv += 0.5;
+
+    vUv = sampleUv;
+
     gl_Position = vec4(position.xy, 0.0, 1.0);
   }
 `;
@@ -511,14 +950,30 @@ const VIDEO_VERT = `
 const VIDEO_FRAG = `
   uniform sampler2D uTexture;
   uniform float uTransition;
+
   varying vec2 vUv;
 
   void main() {
-    if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) discard;
+    if (
+      vUv.x < 0.0 ||
+      vUv.x > 1.0 ||
+      vUv.y < 0.0 ||
+      vUv.y > 1.0
+    ) {
+      discard;
+    }
+
     vec4 color = texture2D(uTexture, vUv);
-    // Fade out as transition ramps up; particle mesh takes over
-    float alpha = color.a * (1.0 - uTransition);
-    gl_FragColor = vec4(color.rgb, alpha);
+
+    float alpha =
+      color.a *
+      (1.0 - uTransition);
+
+    gl_FragColor =
+      vec4(
+        color.rgb,
+        alpha
+      );
   }
 `;
 
@@ -538,90 +993,200 @@ const PARTICLE_VERT = `
   varying vec2 vUv;
   varying float vAlpha;
 
-  vec2 rotate2D(vec2 v, float angle) {
+  vec2 rotate2D(vec2 value, float angle) {
     float c = cos(angle);
     float s = sin(angle);
-    return mat2(c, -s, s, c) * v;
+    return mat2(c, -s, s, c) * value;
   }
 
-  // Pseudo curl-noise: cheap flow field driving particles along curves.
-  // Real curl noise would be expensive; this approximates the feel with
-  // layered sin waves which is enough for a 1.5s transition.
-  vec2 flowField(vec2 p, float t) {
-    float n1 = sin(p.x * 3.0 + t * 0.5) * cos(p.y * 2.5 + t * 0.4);
-    float n2 = cos(p.x * 2.0 - t * 0.3) * sin(p.y * 3.5 - t * 0.6);
+  vec2 flowField(vec2 point, float time) {
+    float n1 =
+      sin(point.x * 3.0 + time * 0.5) *
+      cos(point.y * 2.5 + time * 0.4);
+
+    float n2 =
+      cos(point.x * 2.0 - time * 0.3) *
+      sin(point.y * 3.5 - time * 0.6);
+
     return vec2(n1, n2);
   }
 
   void main() {
     vec3 pos = position;
 
-    // Cover-fit UV sampling — same logic as the video quad
-    vec2 uv = aUv - 0.5;
-    if (uContainerAspect > uVideoAspect) {
-      uv.y *= uVideoAspect / uContainerAspect;
+    vec2 sampleUv =
+      aUv - 0.5;
+
+    if (
+      uContainerAspect >
+      uVideoAspect
+    ) {
+      sampleUv.y *=
+        uVideoAspect /
+        uContainerAspect;
     } else {
-      uv.x *= uContainerAspect / uVideoAspect;
+      sampleUv.x *=
+        uContainerAspect /
+        uVideoAspect;
     }
-    uv = rotate2D(uv, uRotation);
-    uv += 0.5;
-    vUv = uv;
 
-    // Aspect-corrected physical position for displacement math
-    vec2 physicalPos = pos.xy * vec2(uContainerAspect, 1.0);
+    sampleUv =
+      rotate2D(
+        sampleUv,
+        uRotation
+      );
 
-    // Flow displacement: each particle follows a curl field, with timing
-    // staggered by per-particle random so they don't move in lockstep.
-    float scatterAmount = uScatter * (0.4 + aRandom.x * 1.6);
-    vec2 flow = flowField(physicalPos * 1.5 + aRandom.xy, uTime + aRandom.z * 6.28);
-    vec2 displacement = flow * scatterAmount * 0.5;
+    sampleUv += 0.5;
 
-    // Add a small radial bias so the net motion still feels outward,
-    // but the curl noise dominates the look
-    vec2 radial = normalize(physicalPos + vec2(0.0001)) * scatterAmount * 0.2;
+    vUv = sampleUv;
+
+    vec2 physicalPos =
+      pos.xy *
+      vec2(
+        uContainerAspect,
+        1.0
+      );
+
+    float scatterAmount =
+      uScatter *
+      (
+        0.4 +
+        aRandom.x * 1.6
+      );
+
+    vec2 flow =
+      flowField(
+        physicalPos * 1.5 +
+        aRandom.xy,
+
+        uTime +
+        aRandom.z *
+        6.28
+      );
+
+    vec2 displacement =
+      flow *
+      scatterAmount *
+      0.5;
+
+    vec2 radial =
+      normalize(
+        physicalPos +
+        vec2(0.0001)
+      ) *
+      scatterAmount *
+      0.2;
+
     displacement += radial;
 
-    pos.xy += displacement / vec2(uContainerAspect, 1.0);
+    pos.xy +=
+      displacement /
+      vec2(
+        uContainerAspect,
+        1.0
+      );
 
-    // Fade based on scatter progress, with per-particle variation
-    vAlpha = 1.0 - smoothstep(0.3, 0.95 + aRandom.x * 0.05, uScatter);
+    vAlpha =
+      1.0 -
+      smoothstep(
+        0.3,
+        0.95 +
+        aRandom.x *
+        0.05,
+        uScatter
+      );
 
-    gl_Position = vec4(pos, 1.0);
-    gl_PointSize = uSize * uPixelRatio * (1.0 + aRandom.z * 0.4);
+    gl_Position =
+      vec4(
+        pos,
+        1.0
+      );
+
+    gl_PointSize =
+      uSize *
+      uPixelRatio *
+      (
+        1.0 +
+        aRandom.z *
+        0.4
+      );
   }
 `;
 
 const PARTICLE_FRAG = `
   uniform sampler2D uTexture;
   uniform float uTransition;
+
   varying vec2 vUv;
   varying float vAlpha;
 
   void main() {
-    vec2 center = gl_PointCoord - 0.5;
-    float dist = length(center);
-    if (dist > 0.5) discard;
-    float pointAlpha = smoothstep(0.5, 0.4, dist);
+    vec2 center =
+      gl_PointCoord -
+      0.5;
 
-    if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) discard;
+    float distanceFromCenter =
+      length(center);
 
-    vec4 color = texture2D(uTexture, vUv);
+    if (
+      distanceFromCenter >
+      0.5
+    ) {
+      discard;
+    }
 
-    // Only render when transition is active. Multiply by uTransition so
-    // particles fade in/out smoothly as the mode crossfades.
-    gl_FragColor = vec4(color.rgb, color.a * vAlpha * pointAlpha * uTransition);
+    if (
+      vUv.x < 0.0 ||
+      vUv.x > 1.0 ||
+      vUv.y < 0.0 ||
+      vUv.y > 1.0
+    ) {
+      discard;
+    }
+
+    float pointAlpha =
+      smoothstep(
+        0.5,
+        0.4,
+        distanceFromCenter
+      );
+
+    vec4 color =
+      texture2D(
+        uTexture,
+        vUv
+      );
+
+    gl_FragColor =
+      vec4(
+        color.rgb,
+
+        color.a *
+        vAlpha *
+        pointAlpha *
+        uTransition
+      );
   }
 `;
 
 function buildStepNodes(wrap, count) {
   if (!wrap) return [];
-  if (getComputedStyle(wrap).position === "static")
+
+  wrap
+    .querySelectorAll('[data-process="progress-node"]')
+    .forEach((node) => node.remove());
+
+  if (getComputedStyle(wrap).position === "static") {
     wrap.style.position = "relative";
+  }
 
   const nodes = [];
-  for (let i = 0; i < count; i++) {
+
+  for (let index = 0; index < count; index++) {
     const node = document.createElement("div");
+
     node.setAttribute("data-process", "progress-node");
+
     Object.assign(node.style, {
       position: "absolute",
       width: "8px",
@@ -631,17 +1196,22 @@ function buildStepNodes(wrap, count) {
       transform: "translate(-50%, -50%)",
       pointerEvents: "none",
     });
+
     wrap.appendChild(node);
+
     nodes.push(node);
   }
+
   return nodes;
 }
 
 function positionStepNodes(nodes, isMobile, total) {
-  nodes.forEach((node, i) => {
-    const pct = total === 1 ? 0 : (i / (total - 1)) * 100;
-    node.style.top = isMobile ? "50%" : `${pct}%`;
-    node.style.left = isMobile ? `${pct}%` : "50%";
+  nodes.forEach((node, index) => {
+    const percentage = total === 1 ? 0 : (index / (total - 1)) * 100;
+
+    node.style.top = isMobile ? "50%" : `${percentage}%`;
+
+    node.style.left = isMobile ? `${percentage}%` : "50%";
   });
 }
 
@@ -747,50 +1317,47 @@ function initTechSection() {
   mm.add("(max-width: 767px)", () => {
     resetToReadState();
 
-    const mobilePhaseDuration = 3;
+    const mobileTrigger = section.querySelector('[data-tech="mobile-trigger"]');
+    if (!mobileTrigger) return;
 
-    ScrollTrigger.create({
-      trigger: section,
-      start: "top top",
-      once: true,
-      onEnter: runMobileSequence,
+    const totalDuration = 5;
+    const handoff = 2.25;
+
+    const tl = gsap.timeline({
+      defaults: { ease: "none" },
+      scrollTrigger: {
+        trigger: mobileTrigger,
+        //start: 'top 2rem',
+        start: () => {
+          const rem = parseFloat(
+            getComputedStyle(document.documentElement).fontSize,
+          );
+          return `top ${rem * 2}px`;
+        },
+        end: () => `+=${totalDuration * 100}%`,
+        pin: section,
+        scrub: 0.7,
+        invalidateOnRefresh: true,
+      },
     });
 
-    function runMobileSequence() {
-      gsap.to(progressBar, {
-        scaleX: 0.5,
-        duration: mobilePhaseDuration,
-        ease: "none",
-        onComplete: () => gsap.delayedCall(0.8, runHandoff),
-      });
+    tl.to(progressBar, { scaleX: 1, duration: totalDuration }, 0);
+
+    tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, handoff);
+    tl.to(readVisuals, { autoAlpha: 0, duration: 0.6 }, handoff);
+    tl.to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, handoff);
+
+    if (bgOverlay) {
+      tl.to(bgOverlay, { autoAlpha: 1, duration: 0.9 }, handoff - 0.1);
     }
 
-    function runHandoff() {
-      const tl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
-
-      tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, 0)
-        .to(readVisuals, { autoAlpha: 0, duration: 0.55 }, 0)
-        .to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, 0);
-
-      if (bgOverlay) {
-        tl.to(bgOverlay, { autoAlpha: 1, duration: 0.8 }, 0);
-      }
-
-      tl.to(writeVisuals, { autoAlpha: 1, duration: 0.6 }, 0.15)
-        .to(writeDescription, { autoAlpha: 1, y: 0, duration: 0.5 }, 0.2)
-        .to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, 0.2)
-        .call(
-          () => {
-            gsap.to(progressBar, {
-              scaleX: 1,
-              duration: mobilePhaseDuration,
-              ease: "none",
-            });
-          },
-          null,
-          0.5,
-        );
-    }
+    tl.to(writeVisuals, { autoAlpha: 1, duration: 0.65 }, handoff + 0.15);
+    tl.to(
+      writeDescription,
+      { autoAlpha: 1, y: 0, duration: 0.5 },
+      handoff + 0.2,
+    );
+    tl.to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, handoff + 0.2);
   });
 
   mm.add("(prefers-reduced-motion: reduce)", () => {
@@ -1059,6 +1626,7 @@ function setupScrollMask(scrollEl) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initHeroSequence();
   initProcessAnimation().then(() => {
     initTechSection();
     ScrollTrigger.refresh();
