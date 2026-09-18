@@ -1,12 +1,12 @@
 function initBackgroundMedia() {
-  gsap.registerPlugin(ScrollTrigger, SplitText, CustomEase);
+  gsap.registerPlugin(ScrollTrigger);
 
   const mediaItems = document.querySelectorAll("[data-bg-media]");
   const sections = document.querySelectorAll("[data-section]");
 
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-
   const mobileQuery = window.matchMedia("(max-width: 767px)");
+  const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
 
   if (!mediaItems.length || !sections.length) return;
 
@@ -30,53 +30,83 @@ function initBackgroundMedia() {
     mediaRevealEnd: "top 5%",
     mediaRevealScrub: 0.55,
 
+    aboutMediaRevealStart: "top 98%",
+    aboutMediaRevealEnd: "top 55%",
+    aboutMediaRevealScrub: 0.55,
+
+    storyMediaRevealStart: "top 90%",
+    storyMediaRevealEnd: "top 60%",
+    storyMediaRevealScrub: 0.55,
+    storyMediaRevealDistanceVh: 35,
+
+    insightsMediaRevealStart: "top 100%",
+    insightsMediaRevealEnd: "top 55%",
+    insightsMediaRevealScrub: 0.6,
+
+    cLayersMediaRevealStart: "top 45%",
+    cLayersMediaRevealEnd: "top top",
+    cLayersMediaRevealScrub: 0.8,
+    cLayersPrepareStart: "top 300%",
+    cLayersMapFadeDuration: 0.45,
+    cLayersMapFadeOutStart: "bottom 75%",
+
+    cLayersVideoTargets: {
+      infrastructure: 0.403,
+      memory: 0.581,
+      application: 0.767,
+    },
+
+    cLayersTargetTolerance: 0.015,
+    cLayersPanelInDuration: 0.42,
+    cLayersPanelOutDuration: 0.22,
+
     staticMediaRevealStart: "top 75%",
     staticMediaRevealEnd: "top 25%",
     staticMediaRevealScrub: 0.55,
 
-    aboutFallbackScrollDistance: 1800,
-    aboutPixelsPerSecond: 110,
-    aboutMinScrollDistance: 1400,
-    aboutMaxScrollDistance: 2400,
-    aboutScrub: 0.45,
+    storyScrubStart: "top 50%",
+    storyScrubEnd: "bottom 100%",
+    storyScrub: 0.7,
+    storyPreloadStart: "top 80%",
+    storyFinalTailVh: 180,
+    storyIntroGapVh: 40,
 
-    aboutTextStart: 0.08,
-    aboutLineDuration: 0.3,
-
-    storyScrub: 0.45,
-    storyDesktopMinScrollDistance: 2600,
-    storyMobileMinScrollDistance: 2200,
-    storyMaxScrollDistance: 4200,
-    storyViewportMultiplier: 1.45,
-
-    storyStep1MoveStart: 0.2,
-    storyStep2Center: 0.46,
-    storyStep2MoveStart: 0.62,
-    storyStep3Center: 0.88,
-
-    insightsScrub: 0.4,
+    insightsScrubViewport: 0.55,
+    insightsScrubStart: "top 55%",
+    insightsScrubEnd: "bottom 55%",
+    insightsScrub: 0.65,
     insightsPreloadStart: "top 200%",
-    insightsContentRevealStart: "top 20%",
-    insightsContentRevealEnd: "top 2%",
+    insightsContentStartSeconds: 4,
+    insightsContentEntryViewport: 0.92,
+    insightsFinalVisualHoldVh: 60,
 
-    cLayersFallbackScrollDistance: 1800,
-    cLayersPixelsPerSecond: 110,
-    cLayersMinScrollDistance: 1400,
-    cLayersMaxScrollDistance: 2400,
-    cLayersScrub: 0.45,
-    cLayersPrepareStart: "top 300%",
+    viewportFadeScrub: 0.28,
+    viewportFadeBlur: 4,
+    viewportFadeInEnd: 0.2,
+    viewportFadeOutStart: 0.8,
+
+    storyFadeBlur: 5,
+    storyRevealDuration: 0.18,
+    storyRevealStagger: 0.045,
+    storyFadeOutStart: 0.82,
+    storyFadeOutDuration: 0.18,
+
+    heroFadeBlur: 4,
+    heroFadeHold: 0.22,
+
+    aboutReplayFadeOut: 0.18,
+    aboutReplayFadeIn: 0.35,
+    aboutReplaySeekTimeout: 400,
 
     webKitSeekWatchdog: isIOS ? 320 : 220,
     webKitPrimeTimeout: isIOS ? 450 : 300,
   };
 
-  CustomEase.create("softReveal", "M0,0 C0.16,1 0.3,1 1,1");
-
   const mediaMap = new Map();
 
   let heroPlaybackEnabled = true;
 
-  mediaItems.forEach((item, index) => {
+  mediaItems.forEach(function (item, index) {
     const key = item.getAttribute("data-bg-media");
     const video = item.querySelector("[data-bg-video]");
 
@@ -108,7 +138,6 @@ function initBackgroundMedia() {
 
   function getVideoSource(item) {
     const desktopSource = item.getAttribute("data-video-desktop");
-
     const mobileSource = item.getAttribute("data-video-mobile");
 
     if (mobileQuery.matches && mobileSource) {
@@ -217,10 +246,9 @@ function initBackgroundMedia() {
       return Promise.resolve(true);
     }
 
-    return new Promise((resolve) => {
+    return new Promise(function (resolve) {
       function cleanup(result) {
         video.removeEventListener("loadeddata", handleReady);
-
         video.removeEventListener("error", handleError);
 
         resolve(result);
@@ -235,8 +263,11 @@ function initBackgroundMedia() {
       }
 
       video.addEventListener("loadeddata", handleReady);
-
       video.addEventListener("error", handleError);
+
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        cleanup(true);
+      }
     });
   }
 
@@ -274,18 +305,15 @@ function initBackgroundMedia() {
 
   function waitForVideoBuffer(video, options = {}) {
     const bufferSeconds = options.bufferSeconds || 0;
-
     const bufferFraction = options.bufferFraction || 0;
-
     const maxWaitMs = options.maxWaitMs || 12000;
-
     const allowReadyState = options.allowReadyState || false;
 
     if (!bufferSeconds && !bufferFraction) {
       return Promise.resolve(true);
     }
 
-    return new Promise((resolve) => {
+    return new Promise(function (resolve) {
       const startedAt = performance.now();
 
       let timerId = null;
@@ -299,9 +327,7 @@ function initBackgroundMedia() {
         clearTimeout(timerId);
 
         video.removeEventListener("progress", checkBuffer);
-
         video.removeEventListener("canplaythrough", checkBuffer);
-
         video.removeEventListener("error", handleError);
 
         resolve(result);
@@ -352,9 +378,7 @@ function initBackgroundMedia() {
       }
 
       video.addEventListener("progress", checkBuffer);
-
       video.addEventListener("canplaythrough", checkBuffer);
-
       video.addEventListener("error", handleError);
 
       checkBuffer();
@@ -362,7 +386,7 @@ function initBackgroundMedia() {
   }
 
   function waitForVideoSignal(video, timeoutMs) {
-    return new Promise((resolve) => {
+    return new Promise(function (resolve) {
       let resolved = false;
       let timeoutId = null;
       let frameCallbackId = null;
@@ -382,9 +406,7 @@ function initBackgroundMedia() {
         ) {
           try {
             video.cancelVideoFrameCallback(frameCallbackId);
-          } catch (error) {
-            // No-op.
-          }
+          } catch (error) {}
         }
 
         resolve();
@@ -409,8 +431,20 @@ function initBackgroundMedia() {
   }
 
   function delay(milliseconds) {
-    return new Promise((resolve) => {
+    return new Promise(function (resolve) {
       setTimeout(resolve, milliseconds);
+    });
+  }
+
+  function tweenVideoOpacity(video, opacity, duration) {
+    return new Promise(function (resolve) {
+      gsap.to(video, {
+        opacity,
+        duration,
+        ease: "power1.out",
+        overwrite: true,
+        onComplete: resolve,
+      });
     });
   }
 
@@ -450,7 +484,6 @@ function initBackgroundMedia() {
 
         if (video.duration && Number.isFinite(video.duration)) {
           const safeDuration = Math.max(0, video.duration - 0.034);
-
           const nudgeTime = Math.min(0.08, safeDuration);
 
           if (nudgeTime > 0 && isTimeBuffered(video, nudgeTime)) {
@@ -469,9 +502,7 @@ function initBackgroundMedia() {
             video.currentTime = 0;
           }
         }
-      } catch (error) {
-        // Keep the static fallback visible.
-      }
+      } catch (error) {}
 
       video.pause();
 
@@ -527,6 +558,109 @@ function initBackgroundMedia() {
     media.video.pause();
   }
 
+  async function preparePlaybackVideo(media, options = {}) {
+    if (!media || !media.video || reducedMotion.matches) {
+      return false;
+    }
+
+    loadVideo(media);
+
+    const video = media.video;
+
+    configureVideo(video);
+
+    video.loop = false;
+    video.pause();
+
+    const ready = await waitForVideoReady(video);
+
+    if (!ready) {
+      return false;
+    }
+
+    if (options.bufferSeconds || options.bufferFraction) {
+      await waitForVideoBuffer(video, {
+        bufferSeconds: options.bufferSeconds,
+        bufferFraction: options.bufferFraction,
+        maxWaitMs: options.maxWaitMs,
+      });
+    }
+
+    if (useWebKitMediaWorkarounds) {
+      await primeVideoDecoder(media);
+    }
+
+    revealVideo(media, 0.35);
+
+    return true;
+  }
+
+  async function restartPlaybackVideo(media, options = {}) {
+    if (!media || !media.video) {
+      return false;
+    }
+
+    const video = media.video;
+
+    const smooth = options.smooth === true;
+
+    const shouldContinue =
+      typeof options.shouldContinue === "function"
+        ? options.shouldContinue
+        : function () {
+            return true;
+          };
+
+    configureVideo(video);
+
+    video.loop = false;
+
+    if (smooth) {
+      await tweenVideoOpacity(video, 0, CONFIG.aboutReplayFadeOut);
+
+      if (!shouldContinue()) {
+        return false;
+      }
+    }
+
+    video.pause();
+
+    try {
+      video.currentTime = 0;
+    } catch (error) {}
+
+    if (smooth) {
+      await waitForVideoSignal(video, CONFIG.aboutReplaySeekTimeout);
+
+      if (!shouldContinue()) {
+        return false;
+      }
+    }
+
+    safePlay(video);
+
+    if (smooth) {
+      gsap.to(video, {
+        opacity: 1,
+        duration: CONFIG.aboutReplayFadeIn,
+        ease: "power1.out",
+        overwrite: true,
+      });
+    } else {
+      gsap.set(video, {
+        opacity: 1,
+      });
+    }
+
+    return true;
+  }
+
+  function pausePlaybackVideo(media) {
+    if (!media || !media.video) return;
+
+    media.video.pause();
+  }
+
   function createVideoScrubber(video) {
     let targetTime = 0;
     let isSeeking = false;
@@ -564,9 +698,7 @@ function initBackgroundMedia() {
       ) {
         try {
           video.cancelVideoFrameCallback(frameCallbackId);
-        } catch (error) {
-          // No-op.
-        }
+        } catch (error) {}
       }
 
       frameCallbackId = null;
@@ -673,7 +805,7 @@ function initBackgroundMedia() {
     video.addEventListener("loadeddata", handleLoadedData);
 
     return {
-      setProgress(progress) {
+      setProgress: function (progress) {
         const duration = getSafeDuration();
 
         if (!duration) return;
@@ -683,7 +815,7 @@ function initBackgroundMedia() {
         queueSeek();
       },
 
-      forceProgress(progress) {
+      forceProgress: function (progress) {
         const duration = getSafeDuration();
 
         if (!duration) return;
@@ -707,19 +839,17 @@ function initBackgroundMedia() {
         performSeek();
       },
 
-      reset() {
+      reset: function () {
         targetTime = 0;
 
         if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
           try {
             video.currentTime = 0;
-          } catch (error) {
-            // No-op.
-          }
+          } catch (error) {}
         }
       },
 
-      destroy() {
+      destroy: function () {
         destroyed = true;
 
         clearSeekGuards();
@@ -832,64 +962,7 @@ function initBackgroundMedia() {
 
     try {
       video.load();
-    } catch (error) {
-      // No-op.
-    }
-  }
-
-  function getAboutScrollDistance(video) {
-    if (!video || !video.duration || !Number.isFinite(video.duration)) {
-      return CONFIG.aboutFallbackScrollDistance;
-    }
-
-    const calculatedDistance = video.duration * CONFIG.aboutPixelsPerSecond;
-
-    return Math.round(
-      gsap.utils.clamp(
-        CONFIG.aboutMinScrollDistance,
-        CONFIG.aboutMaxScrollDistance,
-        calculatedDistance,
-      ),
-    );
-  }
-
-  function getStoryScrollDistance(rowCount) {
-    const rowTransitions = Math.max(1, rowCount - 1);
-
-    const viewportDistance =
-      rowTransitions * window.innerHeight * CONFIG.storyViewportMultiplier;
-
-    const minimumDistance = mobileQuery.matches
-      ? CONFIG.storyMobileMinScrollDistance
-      : CONFIG.storyDesktopMinScrollDistance;
-
-    return Math.round(
-      gsap.utils.clamp(
-        minimumDistance,
-        CONFIG.storyMaxScrollDistance,
-        viewportDistance,
-      ),
-    );
-  }
-
-  function getNaturalSectionScrollDistance(section) {
-    return Math.max(1, section.offsetHeight - window.innerHeight);
-  }
-
-  function getCLayersScrollDistance(video) {
-    if (!video || !video.duration || !Number.isFinite(video.duration)) {
-      return CONFIG.cLayersFallbackScrollDistance;
-    }
-
-    const calculatedDistance = video.duration * CONFIG.cLayersPixelsPerSecond;
-
-    return Math.round(
-      gsap.utils.clamp(
-        CONFIG.cLayersMinScrollDistance,
-        CONFIG.cLayersMaxScrollDistance,
-        calculatedDistance,
-      ),
-    );
+    } catch (error) {}
   }
 
   function createStackedMediaReveal(
@@ -922,6 +995,7 @@ function initBackgroundMedia() {
         start,
         end,
         scrub,
+        invalidateOnRefresh: true,
       },
     });
 
@@ -991,135 +1065,433 @@ function initBackgroundMedia() {
     });
   }
 
-  function createStoryTextTimeline(rows) {
-    const timeline = gsap.timeline({
-      paused: true,
+  function createViewportFade(trigger, targets, options = {}) {
+    if (reducedMotion.matches || !trigger || !targets) {
+      return null;
+    }
+
+    const elements = gsap.utils.toArray(targets).filter(Boolean);
+
+    if (!elements.length) {
+      return null;
+    }
+
+    const start = options.start || "top 90%";
+
+    const end = options.end || "bottom 10%";
+
+    const scrub = options.scrub ?? CONFIG.viewportFadeScrub;
+
+    const fadeInEnd = options.fadeInEnd ?? CONFIG.viewportFadeInEnd;
+
+    const fadeOutStart = options.fadeOutStart ?? CONFIG.viewportFadeOutStart;
+
+    const blur = options.blur ?? CONFIG.viewportFadeBlur;
+
+    const edgeOpacity = options.edgeOpacity ?? 0;
+
+    gsap.set(elements, {
+      opacity: edgeOpacity,
+      filter: `blur(${blur}px)`,
     });
 
-    const timelineClock = {
-      progress: 0,
-    };
+    const timeline = gsap.timeline({
+      scrollTrigger: {
+        trigger,
+        start,
+        end,
+        scrub,
+        invalidateOnRefresh: true,
+      },
+    });
 
     timeline.to(
-      timelineClock,
+      elements,
       {
-        progress: 1,
-        duration: 1,
+        opacity: 1,
+        filter: "blur(0px)",
+        duration: fadeInEnd,
         ease: "none",
       },
       0,
     );
 
-    rows.forEach((row) => {
-      const eyebrow = row.querySelector("[data-story-eyebrow]");
+    timeline.to(
+      elements,
+      {
+        opacity: edgeOpacity,
+        filter: `blur(${blur}px)`,
+        duration: 1 - fadeOutStart,
+        ease: "none",
+      },
+      fadeOutStart,
+    );
 
-      const title = row.querySelector("[data-story-title]");
+    return timeline;
+  }
 
-      const subtext = row.querySelector("[data-story-subtext]");
+  function createViewportEntrance(trigger, targets, options = {}) {
+    if (reducedMotion.matches || !trigger || !targets) {
+      return null;
+    }
 
-      if (eyebrow) {
-        gsap.set(eyebrow, {
-          opacity: 0,
-          y: 14,
-          filter: "blur(5px)",
-        });
-      }
+    const elements = gsap.utils.toArray(targets).filter(Boolean);
 
-      if (title) {
-        gsap.set(title, {
-          opacity: 0,
-          y: 30,
-          filter: "blur(10px)",
-        });
-      }
+    if (!elements.length) {
+      return null;
+    }
 
-      if (subtext) {
-        gsap.set(subtext, {
-          opacity: 0,
-          y: 20,
-          filter: "blur(7px)",
-        });
-      }
+    const start = options.start || "top 92%";
+
+    const end = options.end || "top 60%";
+
+    const scrub = options.scrub ?? CONFIG.viewportFadeScrub;
+
+    const blur = options.blur ?? CONFIG.viewportFadeBlur;
+
+    gsap.set(elements, {
+      opacity: 0,
+      filter: `blur(${blur}px)`,
     });
 
-    const revealStarts = [0, 0.42, 0.82];
+    return gsap.to(elements, {
+      opacity: 1,
+      filter: "blur(0px)",
+      ease: "none",
 
-    const exitStarts = [0.22, 0.64];
+      scrollTrigger: {
+        trigger,
+        start,
+        end,
+        scrub,
+        invalidateOnRefresh: true,
+      },
+    });
+  }
 
-    rows.forEach((row, index) => {
-      const eyebrow = row.querySelector("[data-story-eyebrow]");
+  function createViewportExit(trigger, targets, options = {}) {
+    if (reducedMotion.matches || !trigger || !targets) {
+      return null;
+    }
 
-      const title = row.querySelector("[data-story-title]");
+    const elements = gsap.utils.toArray(targets).filter(Boolean);
 
-      const subtext = row.querySelector("[data-story-subtext]");
+    if (!elements.length) {
+      return null;
+    }
 
-      const revealStart = revealStarts[index] ?? index / rows.length;
+    const start = options.start || "top top";
 
-      if (eyebrow) {
-        timeline.to(
-          eyebrow,
-          {
-            opacity: 1,
-            y: 0,
-            filter: "blur(0px)",
-            duration: 0.08,
-            ease: "softReveal",
-          },
-          revealStart,
-        );
-      }
+    const end = options.end || "bottom 35%";
 
-      if (title) {
-        timeline.to(
-          title,
-          {
-            opacity: 1,
-            y: 0,
-            filter: "blur(0px)",
-            duration: 0.12,
-            ease: "softReveal",
-          },
-          revealStart + 0.025,
-        );
-      }
+    const scrub = options.scrub ?? CONFIG.viewportFadeScrub;
 
-      if (subtext) {
-        timeline.to(
-          subtext,
-          {
-            opacity: 1,
-            y: 0,
-            filter: "blur(0px)",
-            duration: 0.11,
-            ease: "softReveal",
-          },
-          revealStart + 0.065,
-        );
-      }
+    const blur = options.blur ?? CONFIG.heroFadeBlur;
 
-      if (index >= rows.length - 1) {
-        return;
-      }
+    const holdUntil = options.holdUntil ?? CONFIG.heroFadeHold;
 
-      const exitStart = exitStarts[index];
+    gsap.set(elements, {
+      opacity: 1,
+      filter: "blur(0px)",
+    });
 
-      const elements = [eyebrow, title, subtext].filter(Boolean);
+    const timeline = gsap.timeline({
+      scrollTrigger: {
+        trigger,
+        start,
+        end,
+        scrub,
+        invalidateOnRefresh: true,
+      },
+    });
 
+    timeline.to(
+      elements,
+      {
+        opacity: 1,
+        filter: "blur(0px)",
+        duration: holdUntil,
+        ease: "none",
+      },
+      0,
+    );
+
+    timeline.to(
+      elements,
+      {
+        opacity: 0,
+        filter: `blur(${blur}px)`,
+        duration: 1 - holdUntil,
+        ease: "none",
+      },
+      holdUntil,
+    );
+
+    return timeline;
+  }
+
+  function createStoryRowFade(row) {
+    if (reducedMotion.matches || !row) {
+      return null;
+    }
+
+    const eyebrow = row.querySelector("[data-story-eyebrow]");
+
+    const title = row.querySelector("[data-story-title]");
+
+    const subtext = row.querySelector("[data-story-subtext]");
+
+    const elements = [eyebrow, title, subtext].filter(Boolean);
+
+    if (!elements.length) {
+      return null;
+    }
+
+    gsap.set(elements, {
+      opacity: 0,
+      filter: `blur(${CONFIG.storyFadeBlur}px)`,
+    });
+
+    const timeline = gsap.timeline({
+      scrollTrigger: {
+        trigger: row,
+        start: "top 50%",
+        end: "bottom 50%",
+        scrub: 0.3,
+        invalidateOnRefresh: true,
+      },
+    });
+
+    elements.forEach(function (element, elementIndex) {
       timeline.to(
-        elements,
+        element,
         {
-          opacity: 0,
-          y: -18,
-          filter: "blur(7px)",
-          duration: 0.15,
-          ease: "power1.in",
-          stagger: 0.012,
+          opacity: 1,
+          filter: "blur(0px)",
+          duration: CONFIG.storyRevealDuration,
+          ease: "none",
         },
-        exitStart,
+        elementIndex * CONFIG.storyRevealStagger,
       );
     });
 
+    timeline.to(
+      elements,
+      {
+        opacity: 0,
+        filter: `blur(${CONFIG.viewportFadeBlur}px)`,
+        duration: CONFIG.storyFadeOutDuration,
+        ease: "none",
+      },
+      CONFIG.storyFadeOutStart,
+    );
+
     return timeline;
+  }
+
+  function getInsightsTextTargets(insights) {
+    if (!insights) return [];
+
+    const contentRoot =
+      insights.querySelector("[data-insights-content]") || insights;
+
+    const cardsContainer = insights.querySelector(".insights_cards-container");
+
+    const candidates = Array.from(
+      contentRoot.querySelectorAll("h1, h2, h3, h4, h5, h6, p"),
+    );
+
+    if (!cardsContainer) {
+      return candidates.slice(0, 3);
+    }
+
+    return candidates.filter(function (element) {
+      return !cardsContainer.contains(element);
+    });
+  }
+
+  function createInsightsSpacingController(insights, contentRoot, media) {
+    if (!insights || !contentRoot || !media || !media.video) {
+      return function () {
+        return false;
+      };
+    }
+
+    const computedStyle = window.getComputedStyle(contentRoot);
+
+    const basePaddingTop = parseFloat(computedStyle.paddingTop) || 0;
+
+    const basePaddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
+
+    function updateInsightsSpacing() {
+      const video = media.video;
+
+      if (!video.duration || !Number.isFinite(video.duration)) {
+        return false;
+      }
+
+      const contentStartProgress = gsap.utils.clamp(
+        0,
+        0.9,
+        CONFIG.insightsContentStartSeconds / video.duration,
+      );
+
+      const viewportHeight = window.innerHeight;
+
+      contentRoot.style.paddingTop = `${basePaddingTop}px`;
+
+      contentRoot.style.paddingBottom = `${
+        basePaddingBottom +
+        (viewportHeight * CONFIG.insightsFinalVisualHoldVh) / 100
+      }px`;
+
+      const firstTarget =
+        getInsightsTextTargets(insights)[0] || contentRoot.firstElementChild;
+
+      if (!firstTarget) {
+        return false;
+      }
+
+      const sectionRect = insights.getBoundingClientRect();
+
+      const firstTargetRect = firstTarget.getBoundingClientRect();
+
+      const firstTargetOffset = firstTargetRect.top - sectionRect.top;
+
+      const baseScrollDistance = insights.offsetHeight;
+
+      const desiredViewportOffset =
+        (CONFIG.insightsContentEntryViewport - CONFIG.insightsScrubViewport) *
+        viewportHeight;
+
+      const extraPaddingTop =
+        (contentStartProgress * baseScrollDistance +
+          desiredViewportOffset -
+          firstTargetOffset) /
+        (1 - contentStartProgress);
+
+      contentRoot.style.paddingTop = `${
+        basePaddingTop + Math.max(0, extraPaddingTop)
+      }px`;
+
+      return true;
+    }
+
+    return updateInsightsSpacing;
+  }
+
+  function initContentFades() {
+    if (reducedMotion.matches) {
+      return;
+    }
+
+    const hero = document.querySelector('[data-media-role="hero"]');
+
+    if (hero) {
+      const heroHeading = hero.querySelector(".hero_heading");
+
+      const heroSubtext = hero.querySelector(".hero_subtext");
+
+      createViewportExit(hero, [heroHeading, heroSubtext], {
+        start: "top top",
+        end: "bottom 35%",
+        scrub: 0.3,
+        holdUntil: 0.2,
+        blur: 4,
+      });
+    }
+
+    const about = document.querySelector('[data-media-role="about"]');
+
+    const aboutTitle = about ? about.querySelector("[data-about-title]") : null;
+
+    if (about && aboutTitle) {
+      createViewportFade(about, aboutTitle, {
+        start: "top 50%",
+        end: "bottom 50%",
+        scrub: 0.28,
+        fadeInEnd: 0.2,
+        fadeOutStart: 0.8,
+        blur: 5,
+      });
+    }
+
+    const story = document.querySelector('[data-media-role="story"]');
+
+    if (story) {
+      const rows = story.querySelectorAll("[data-story-row]");
+
+      rows.forEach(function (row) {
+        createStoryRowFade(row);
+      });
+    }
+
+    const insights = document.querySelector('[data-media-role="insights"]');
+
+    if (insights) {
+      const insightsTextTargets = getInsightsTextTargets(insights);
+
+      insightsTextTargets.forEach(function (element) {
+        createViewportFade(element, element, {
+          start: "top 90%",
+          end: "bottom 10%",
+          scrub: 0.28,
+          fadeInEnd: 0.18,
+          fadeOutStart: 0.82,
+          blur: 4,
+        });
+      });
+    }
+
+    const pipelineTitle = document.querySelector(".pipeline_title");
+
+    if (pipelineTitle) {
+      createViewportFade(pipelineTitle, pipelineTitle, {
+        start: "top 90%",
+        end: "bottom 10%",
+        scrub: 0.28,
+        fadeInEnd: 0.18,
+        fadeOutStart: 0.82,
+        blur: 4,
+      });
+    }
+
+    const teamTitle = document.querySelector(".team_title");
+
+    if (teamTitle) {
+      createViewportFade(teamTitle, teamTitle, {
+        start: "top 90%",
+        end: "bottom 10%",
+        scrub: 0.28,
+        fadeInEnd: 0.18,
+        fadeOutStart: 0.82,
+        blur: 4,
+      });
+    }
+
+    const newsTitle = document.querySelector(".news_title");
+
+    if (newsTitle) {
+      createViewportFade(newsTitle, newsTitle, {
+        start: "top 90%",
+        end: "bottom 10%",
+        scrub: 0.28,
+        fadeInEnd: 0.18,
+        fadeOutStart: 0.82,
+        blur: 4,
+      });
+    }
+
+    const footerTitle = document.querySelector(".footer_title");
+
+    if (footerTitle) {
+      createViewportEntrance(footerTitle, footerTitle, {
+        start: "top 92%",
+        end: "top 60%",
+        scrub: 0.28,
+        blur: 4,
+      });
+    }
   }
 
   async function initHero() {
@@ -1193,165 +1565,90 @@ function initBackgroundMedia() {
 
     const aboutMedia = getSectionMedia(about);
 
-    const aboutTitle = about.querySelector("[data-about-title]");
-
     if (!heroMedia || !aboutMedia) {
       return null;
     }
 
     if (reducedMotion.matches) {
-      if (aboutTitle) {
-        gsap.set(aboutTitle, {
-          opacity: 1,
-          clearProps: "filter,transform",
-        });
-      }
-
       createReducedMotionMediaSwap(about, aboutMedia, heroMedia);
 
       return aboutMedia;
     }
 
-    let textTimeline = null;
-    let currentProgress = 0;
-
-    if (document.fonts && document.fonts.ready) {
-      await document.fonts.ready;
-    }
-
-    await new Promise(function (resolve) {
-      requestAnimationFrame(function () {
-        requestAnimationFrame(resolve);
-      });
+    heroReadyPromise.then(function () {
+      preparePlaybackVideo(aboutMedia, getScrubPrepareOptions("about"));
     });
 
-    function createAboutTextAnimation(self) {
-      const lines = self.lines;
+    createStackedMediaReveal(about, aboutMedia, heroMedia, {
+      start: CONFIG.aboutMediaRevealStart,
+      end: CONFIG.aboutMediaRevealEnd,
+      scrub: CONFIG.aboutMediaRevealScrub,
+    });
 
-      if (!lines.length) {
-        return null;
+    let aboutPlaybackActive = false;
+    let aboutPlaybackRunId = 0;
+
+    async function startAboutPlayback(options = {}) {
+      aboutPlaybackRunId += 1;
+
+      const runId = aboutPlaybackRunId;
+
+      aboutPlaybackActive = true;
+
+      setHeroPlayback(false, heroMedia);
+
+      const ready = await preparePlaybackVideo(
+        aboutMedia,
+        getScrubPrepareOptions("about"),
+      );
+
+      if (!ready || !aboutPlaybackActive || runId !== aboutPlaybackRunId) {
+        return;
       }
 
-      gsap.set(lines, {
-        opacity: 0,
-        yPercent: 28,
-        filter: "blur(10px)",
-        "--line-reveal": "0%",
-      });
+      await restartPlaybackVideo(aboutMedia, {
+        smooth: options.smooth === true,
 
-      const timeline = gsap.timeline({
-        paused: true,
-      });
-
-      const availableStagger =
-        1 - CONFIG.aboutTextStart - CONFIG.aboutLineDuration;
-
-      const lineStagger =
-        lines.length > 1 ? availableStagger / (lines.length - 1) : 0;
-
-      lines.forEach(function (line, index) {
-        const position = CONFIG.aboutTextStart + index * lineStagger;
-
-        timeline.to(
-          line,
-          {
-            opacity: 1,
-            yPercent: 0,
-            filter: "blur(0px)",
-            "--line-reveal": "100%",
-            duration: CONFIG.aboutLineDuration,
-            ease: "softReveal",
-          },
-          position,
-        );
-      });
-
-      timeline.progress(currentProgress);
-
-      textTimeline = timeline;
-
-      return timeline;
-    }
-
-    if (aboutTitle) {
-      SplitText.create(aboutTitle, {
-        type: "lines",
-        linesClass: "about-line",
-        autoSplit: true,
-
-        onSplit: function (self) {
-          return createAboutTextAnimation(self);
+        shouldContinue: function () {
+          return aboutPlaybackActive && runId === aboutPlaybackRunId;
         },
       });
     }
 
-    heroReadyPromise.then(function () {
-      prepareScrubVideo(aboutMedia, getScrubPrepareOptions("about")).then(
-        function (ready) {
-          if (!ready) return;
+    function stopAboutPlayback() {
+      aboutPlaybackActive = false;
+      aboutPlaybackRunId += 1;
 
-          ScrollTrigger.refresh();
-        },
-      );
-    });
+      pausePlaybackVideo(aboutMedia);
+    }
 
-    createStackedMediaReveal(about, aboutMedia, heroMedia);
+    ScrollTrigger.create({
+      trigger: about,
+      start: CONFIG.aboutMediaRevealEnd,
+      end: "bottom 90%",
 
-    const progressState = {
-      value: 0,
-    };
+      onEnter: function () {
+        startAboutPlayback({
+          smooth: false,
+        });
+      },
 
-    const aboutTimeline = gsap.timeline({
-      scrollTrigger: {
-        trigger: about,
-        start: "top top",
+      onEnterBack: function () {
+        startAboutPlayback({
+          smooth: true,
+        });
+      },
 
-        end: function () {
-          return `+=${getAboutScrollDistance(aboutMedia.video)}`;
-        },
+      onLeave: function () {
+        stopAboutPlayback();
+      },
 
-        pin: true,
-        scrub: CONFIG.aboutScrub,
-        anticipatePin: 1,
-        invalidateOnRefresh: true,
+      onLeaveBack: function () {
+        stopAboutPlayback();
 
-        onEnter: function () {
-          setHeroPlayback(false, heroMedia);
-
-          prepareScrubVideo(aboutMedia, getScrubPrepareOptions("about"));
-        },
-
-        onEnterBack: function () {
-          setHeroPlayback(false, heroMedia);
-
-          prepareScrubVideo(aboutMedia, getScrubPrepareOptions("about"));
-        },
-
-        onLeaveBack: function () {
-          setHeroPlayback(true, heroMedia);
-        },
+        setHeroPlayback(true, heroMedia);
       },
     });
-
-    aboutTimeline.to(
-      progressState,
-      {
-        value: 1,
-        duration: 1,
-        ease: "none",
-
-        onUpdate: function () {
-          currentProgress = progressState.value;
-
-          if (textTimeline) {
-            textTimeline.progress(currentProgress);
-          }
-
-          setScrubProgress(aboutMedia, currentProgress);
-        },
-      },
-      0,
-    );
 
     return aboutMedia;
   }
@@ -1371,11 +1668,21 @@ function initBackgroundMedia() {
 
     const storyMedia = getSectionMedia(story);
 
-    const rows = gsap.utils.toArray(story.querySelectorAll("[data-story-row]"));
-
-    if (!aboutMedia || !storyMedia || !rows.length) {
+    if (!aboutMedia || !storyMedia) {
       return null;
     }
+
+    const aboutTitle = about.querySelector("[data-about-title]");
+
+    story.style.setProperty(
+      "--story-final-tail",
+      `${CONFIG.storyFinalTailVh}svh`,
+    );
+
+    story.style.setProperty(
+      "--story-intro-gap",
+      `${CONFIG.storyIntroGapVh}svh`,
+    );
 
     if (reducedMotion.matches) {
       createReducedMotionMediaSwap(story, storyMedia, aboutMedia);
@@ -1385,78 +1692,65 @@ function initBackgroundMedia() {
 
     ScrollTrigger.create({
       trigger: about,
-      start: "top top",
+      start: CONFIG.storyPreloadStart,
+      once: true,
 
       onEnter: function () {
         prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
       },
-
-      onEnterBack: function () {
-        prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
-      },
     });
 
-    createStackedMediaReveal(story, storyMedia, aboutMedia);
+    const storyRevealTrigger = aboutTitle || story;
 
-    const storyTextTimeline = createStoryTextTimeline(rows);
+    const storyRevealStart = aboutTitle
+      ? "bottom top"
+      : CONFIG.storyMediaRevealStart;
+
+    const storyRevealEnd = aboutTitle
+      ? function () {
+          return `+=${Math.round(
+            (window.innerHeight * CONFIG.storyMediaRevealDistanceVh) / 100,
+          )}`;
+        }
+      : CONFIG.storyMediaRevealEnd;
+
+    createStackedMediaReveal(storyRevealTrigger, storyMedia, aboutMedia, {
+      start: storyRevealStart,
+      end: storyRevealEnd,
+      scrub: CONFIG.storyMediaRevealScrub,
+    });
 
     const progressState = {
       value: 0,
     };
 
-    gsap.set(rows, {
-      yPercent: 0,
-    });
-
     const storyTimeline = gsap.timeline({
       scrollTrigger: {
         trigger: story,
-        start: "top top",
-
-        end: function () {
-          return `+=${getStoryScrollDistance(rows.length)}`;
-        },
-
-        pin: true,
+        start: CONFIG.storyScrubStart,
+        end: CONFIG.storyScrubEnd,
         scrub: CONFIG.storyScrub,
-        anticipatePin: 1,
         invalidateOnRefresh: true,
 
         onEnter: function () {
           prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
-
-          releaseScrubVideo(aboutMedia);
         },
 
         onEnterBack: function () {
           prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
         },
 
+        onLeave: function () {
+          forceScrubProgress(storyMedia, 1);
+        },
+
         onLeaveBack: function () {
-          prepareScrubVideo(aboutMedia, getScrubPrepareOptions("about"));
+          forceScrubProgress(storyMedia, 0);
+
+          preparePlaybackVideo(aboutMedia, getScrubPrepareOptions("about"));
         },
       },
     });
-
-    storyTimeline.to(
-      rows,
-      {
-        yPercent: -100,
-        duration: CONFIG.storyStep2Center - CONFIG.storyStep1MoveStart,
-        ease: "none",
-      },
-      CONFIG.storyStep1MoveStart,
-    );
-
-    storyTimeline.to(
-      rows,
-      {
-        yPercent: -200,
-        duration: CONFIG.storyStep3Center - CONFIG.storyStep2MoveStart,
-        ease: "none",
-      },
-      CONFIG.storyStep2MoveStart,
-    );
 
     storyTimeline.to(
       progressState,
@@ -1466,15 +1760,24 @@ function initBackgroundMedia() {
         ease: "none",
 
         onUpdate: function () {
-          const progress = progressState.value;
-
-          storyTextTimeline.progress(progress);
-
-          setScrubProgress(storyMedia, progress);
+          setScrubProgress(storyMedia, progressState.value);
         },
       },
       0,
     );
+
+    ScrollTrigger.create({
+      trigger: story,
+      start: "top top",
+
+      onEnter: function () {
+        releaseScrubVideo(aboutMedia);
+      },
+
+      onLeaveBack: function () {
+        preparePlaybackVideo(aboutMedia, getScrubPrepareOptions("about"));
+      },
+    });
 
     return storyMedia;
   }
@@ -1494,46 +1797,31 @@ function initBackgroundMedia() {
 
     const insightsMedia = getSectionMedia(insights);
 
-    const insightsContent = insights.querySelector("[data-insights-content]");
-
     if (!storyMedia || !insightsMedia) {
       return null;
     }
 
-    if (reducedMotion.matches) {
-      if (insightsContent) {
-        gsap.set(insightsContent, {
-          opacity: 1,
-          clearProps: "filter,transform",
-        });
-      }
+    const contentRoot = insights.querySelector("[data-insights-content]");
 
+    if (!contentRoot) {
+      console.warn(
+        "Missing [data-insights-content] on the Insights foreground wrapper.",
+      );
+    }
+
+    if (reducedMotion.matches) {
       createReducedMotionMediaSwap(insights, insightsMedia, storyMedia);
 
       return insightsMedia;
     }
 
-    if (insightsContent) {
-      gsap.set(insightsContent, {
-        opacity: 0,
-        y: 24,
-        filter: "blur(8px)",
-      });
+    const updateInsightsSpacing = createInsightsSpacingController(
+      insights,
+      contentRoot,
+      insightsMedia,
+    );
 
-      gsap.to(insightsContent, {
-        opacity: 1,
-        y: 0,
-        filter: "blur(0px)",
-        ease: "softReveal",
-
-        scrollTrigger: {
-          trigger: insights,
-          start: CONFIG.insightsContentRevealStart,
-          end: CONFIG.insightsContentRevealEnd,
-          scrub: 0.45,
-        },
-      });
-    }
+    ScrollTrigger.addEventListener("refreshInit", updateInsightsSpacing);
 
     ScrollTrigger.create({
       trigger: insights,
@@ -1541,11 +1829,23 @@ function initBackgroundMedia() {
       once: true,
 
       onEnter: function () {
-        prepareScrubVideo(insightsMedia, getScrubPrepareOptions("insights"));
+        prepareScrubVideo(
+          insightsMedia,
+          getScrubPrepareOptions("insights"),
+        ).then(function (ready) {
+          if (!ready) return;
+
+          updateInsightsSpacing();
+          ScrollTrigger.refresh();
+        });
       },
     });
 
-    createStackedMediaReveal(insights, insightsMedia, storyMedia);
+    createStackedMediaReveal(insights, insightsMedia, storyMedia, {
+      start: CONFIG.insightsMediaRevealStart,
+      end: CONFIG.insightsMediaRevealEnd,
+      scrub: CONFIG.insightsMediaRevealScrub,
+    });
 
     const progressState = {
       value: 0,
@@ -1554,12 +1854,8 @@ function initBackgroundMedia() {
     const insightsTimeline = gsap.timeline({
       scrollTrigger: {
         trigger: insights,
-        start: "top top",
-
-        end: function () {
-          return `+=${getNaturalSectionScrollDistance(insights)}`;
-        },
-
+        start: CONFIG.insightsScrubStart,
+        end: CONFIG.insightsScrubEnd,
         scrub: CONFIG.insightsScrub,
         invalidateOnRefresh: true,
 
@@ -1621,11 +1917,437 @@ function initBackgroundMedia() {
       return null;
     }
 
+    const map = cLayers.querySelector("[data-layer-map]");
+
+    const controls = map
+      ? Array.from(map.querySelectorAll("[data-layer-control]"))
+      : [];
+
+    const rows = Array.from(cLayers.querySelectorAll("[data-layer-row]"));
+
     if (reducedMotion.matches) {
       createReducedMotionMediaSwap(cLayers, cLayersMedia, insightsMedia);
 
       return cLayersMedia;
     }
+
+    if (!map || controls.length !== 3 || rows.length !== 3) {
+      console.warn(
+        "C-layers requires [data-layer-map], three [data-layer-control] buttons, and three [data-layer-row] panels.",
+      );
+    }
+
+    const panelMap = {
+      infrastructure: rows[0] || null,
+
+      memory: rows[1] || null,
+
+      application: rows[2] || null,
+    };
+
+    Object.entries(panelMap).forEach(function ([key, row]) {
+      if (!row) return;
+
+      row.setAttribute("data-layer-panel", key);
+
+      if (!row.id) {
+        row.id = `layer-panel-${key}`;
+      }
+
+      row.setAttribute("aria-hidden", "true");
+
+      if ("inert" in row) {
+        row.inert = true;
+      }
+
+      gsap.set(row, {
+        autoAlpha: 0,
+      });
+    });
+
+    controls.forEach(function (control) {
+      const key = control.getAttribute("data-layer-control");
+
+      const row = panelMap[key];
+
+      if (row) {
+        control.setAttribute("aria-controls", row.id);
+      }
+
+      control.setAttribute("aria-pressed", "false");
+    });
+
+    if (map) {
+      gsap.set(map, {
+        autoAlpha: 0,
+      });
+    }
+
+    let activeLayer = null;
+    let videoActionId = 0;
+    let cLayersReadyPromise = null;
+
+    function setPanelAccessibility(row, active) {
+      if (!row) return;
+
+      row.setAttribute("aria-hidden", active ? "false" : "true");
+
+      if ("inert" in row) {
+        row.inert = !active;
+      }
+
+      row.style.pointerEvents = "none";
+
+      const card = row.querySelector(".layers_card");
+
+      if (card) {
+        card.style.pointerEvents = active ? "auto" : "none";
+      }
+    }
+
+    function hidePanel(row, immediate = false) {
+      if (!row) return;
+
+      const card = row.querySelector(".layers_card");
+
+      gsap.killTweensOf(row);
+
+      if (card) {
+        gsap.killTweensOf(card);
+      }
+
+      if (immediate) {
+        gsap.set(row, {
+          autoAlpha: 0,
+        });
+
+        if (card) {
+          gsap.set(card, {
+            opacity: 1,
+            y: 0,
+            filter: "blur(0px)",
+          });
+        }
+
+        setPanelAccessibility(row, false);
+
+        return;
+      }
+
+      if (!card) {
+        gsap.to(row, {
+          autoAlpha: 0,
+          duration: CONFIG.cLayersPanelOutDuration,
+          ease: "power1.out",
+
+          onComplete: function () {
+            setPanelAccessibility(row, false);
+          },
+        });
+
+        return;
+      }
+
+      gsap.to(card, {
+        opacity: 0,
+        y: -12,
+        filter: "blur(4px)",
+        duration: CONFIG.cLayersPanelOutDuration,
+        ease: "power1.out",
+
+        onComplete: function () {
+          gsap.set(row, {
+            autoAlpha: 0,
+          });
+
+          gsap.set(card, {
+            opacity: 1,
+            y: 0,
+            filter: "blur(0px)",
+          });
+
+          setPanelAccessibility(row, false);
+        },
+      });
+    }
+
+    function showPanel(row) {
+      if (!row) return;
+
+      const card = row.querySelector(".layers_card");
+
+      gsap.killTweensOf(row);
+
+      if (card) {
+        gsap.killTweensOf(card);
+      }
+
+      setPanelAccessibility(row, true);
+
+      gsap.set(row, {
+        autoAlpha: 1,
+      });
+
+      if (!card) return;
+
+      gsap.fromTo(
+        card,
+        {
+          opacity: 0,
+          y: 18,
+          filter: "blur(5px)",
+        },
+        {
+          opacity: 1,
+          y: 0,
+          filter: "blur(0px)",
+          duration: CONFIG.cLayersPanelInDuration,
+          ease: "power2.out",
+          overwrite: true,
+        },
+      );
+    }
+
+    function updateControls(key) {
+      if (!map) return;
+
+      if (key) {
+        map.setAttribute("data-active-layer", key);
+      } else {
+        map.removeAttribute("data-active-layer");
+      }
+
+      controls.forEach(function (control) {
+        const controlKey = control.getAttribute("data-layer-control");
+
+        control.setAttribute(
+          "aria-pressed",
+          controlKey === key ? "true" : "false",
+        );
+      });
+    }
+
+    function getCLayersSafeDuration() {
+      const video = cLayersMedia.video;
+
+      if (!video || !video.duration || !Number.isFinite(video.duration)) {
+        return 0;
+      }
+
+      return Math.max(0, video.duration - 0.034);
+    }
+
+    function getCLayersTargetTime(progress) {
+      const duration = getCLayersSafeDuration();
+
+      if (!duration) {
+        return 0;
+      }
+
+      return duration * gsap.utils.clamp(0, 1, progress);
+    }
+
+    async function prepareCLayersVideo() {
+      if (cLayersReadyPromise) {
+        return cLayersReadyPromise;
+      }
+
+      cLayersReadyPromise = (async function () {
+        const ready = await preparePlaybackVideo(
+          cLayersMedia,
+          getScrubPrepareOptions("c-layers"),
+        );
+
+        if (!ready || !cLayersMedia.video) {
+          return false;
+        }
+
+        const video = cLayersMedia.video;
+
+        video.pause();
+        video.loop = false;
+        video.playbackRate = 1;
+
+        return true;
+      })();
+
+      return cLayersReadyPromise;
+    }
+
+    async function snapCLayersVideo(progress) {
+      const actionId = ++videoActionId;
+
+      const ready = await prepareCLayersVideo();
+
+      if (!ready || actionId !== videoActionId) {
+        return;
+      }
+
+      const video = cLayersMedia.video;
+
+      if (!video) return;
+
+      const targetTime = getCLayersTargetTime(progress);
+
+      video.pause();
+      video.loop = false;
+      video.playbackRate = 1;
+
+      gsap.killTweensOf(video);
+
+      gsap.set(video, {
+        opacity: 1,
+      });
+
+      if (
+        Math.abs(video.currentTime - targetTime) <=
+        CONFIG.cLayersTargetTolerance
+      ) {
+        return;
+      }
+
+      try {
+        video.currentTime = targetTime;
+      } catch (error) {}
+    }
+
+    function activateLayer(key) {
+      if (
+        !key ||
+        !panelMap[key] ||
+        CONFIG.cLayersVideoTargets[key] === undefined
+      ) {
+        return;
+      }
+
+      if (activeLayer === key) {
+        return;
+      }
+
+      const previousLayer = activeLayer;
+
+      activeLayer = key;
+
+      if (previousLayer && panelMap[previousLayer]) {
+        hidePanel(panelMap[previousLayer]);
+      }
+
+      updateControls(key);
+
+      showPanel(panelMap[key]);
+
+      snapCLayersVideo(CONFIG.cLayersVideoTargets[key]);
+    }
+
+    function resetLayers(options = {}) {
+      const immediate = options.immediate === true;
+
+      const resetVideo = options.resetVideo !== false;
+
+      if (!activeLayer) {
+        return;
+      }
+
+      activeLayer = null;
+
+      updateControls(null);
+
+      Object.values(panelMap).forEach(function (row) {
+        hidePanel(row, immediate);
+      });
+
+      if (resetVideo) {
+        snapCLayersVideo(0);
+      }
+    }
+
+    function showLayerMap() {
+      if (!map) return;
+
+      gsap.to(map, {
+        autoAlpha: 1,
+        duration: CONFIG.cLayersMapFadeDuration,
+        ease: "power2.out",
+        overwrite: true,
+      });
+    }
+
+    function hideLayerMap() {
+      if (!map) return;
+
+      gsap.to(map, {
+        autoAlpha: 0,
+        duration: CONFIG.cLayersMapFadeDuration,
+        ease: "power2.out",
+        overwrite: true,
+      });
+    }
+
+    function handleOutsidePointerDown(event) {
+      if (hoverQuery.matches || !activeLayer) {
+        return;
+      }
+
+      const control = event.target.closest("[data-layer-control]");
+
+      if (control) {
+        return;
+      }
+
+      resetLayers({
+        immediate: false,
+        resetVideo: true,
+      });
+    }
+
+    controls.forEach(function (control) {
+      const key = control.getAttribute("data-layer-control");
+
+      if (!key) return;
+
+      if (hoverQuery.matches) {
+        control.addEventListener("pointerenter", function () {
+          activateLayer(key);
+        });
+      }
+
+      control.addEventListener("click", function () {
+        activateLayer(key);
+      });
+
+      control.addEventListener("focus", function () {
+        activateLayer(key);
+      });
+    });
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown, {
+      passive: true,
+    });
+
+    if (map) {
+      map.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") {
+          return;
+        }
+
+        resetLayers({
+          immediate: false,
+          resetVideo: true,
+        });
+
+        const activeElement = document.activeElement;
+
+        if (activeElement && typeof activeElement.blur === "function") {
+          activeElement.blur();
+        }
+      });
+    }
+
+    Object.values(panelMap).forEach(function (row) {
+      hidePanel(row, true);
+    });
+
+    updateControls(null);
 
     ScrollTrigger.create({
       trigger: insights,
@@ -1643,72 +2365,66 @@ function initBackgroundMedia() {
       once: true,
 
       onEnter: function () {
-        prepareScrubVideo(
-          cLayersMedia,
-          getScrubPrepareOptions("c-layers"),
-        ).then(function (ready) {
-          if (!ready) return;
-
-          ScrollTrigger.refresh();
-        });
+        prepareCLayersVideo();
       },
     });
 
-    createStackedMediaReveal(cLayers, cLayersMedia, insightsMedia);
+    createStackedMediaReveal(cLayers, cLayersMedia, insightsMedia, {
+      start: CONFIG.cLayersMediaRevealStart,
+      end: CONFIG.cLayersMediaRevealEnd,
+      scrub: CONFIG.cLayersMediaRevealScrub,
+    });
 
-    const progressState = {
-      value: 0,
-    };
+    ScrollTrigger.create({
+      trigger: cLayers,
+      start: CONFIG.cLayersMediaRevealEnd,
+      end: CONFIG.cLayersMapFadeOutStart,
 
-    const cLayersTimeline = gsap.timeline({
-      scrollTrigger: {
-        trigger: cLayers,
-        start: "top top",
+      onEnter: function () {
+        showLayerMap();
+      },
 
-        end: function () {
-          return `+=${getCLayersScrollDistance(cLayersMedia.video)}`;
-        },
+      onEnterBack: function () {
+        showLayerMap();
+      },
 
-        pin: true,
-        scrub: CONFIG.cLayersScrub,
-        anticipatePin: 1,
-        invalidateOnRefresh: true,
+      onLeave: function () {
+        hideLayerMap();
+      },
 
-        onEnter: function () {
-          prepareScrubVideo(cLayersMedia, getScrubPrepareOptions("c-layers"));
-
-          releaseScrubVideo(insightsMedia);
-        },
-
-        onEnterBack: function () {
-          prepareScrubVideo(cLayersMedia, getScrubPrepareOptions("c-layers"));
-        },
-
-        onLeave: function () {
-          forceScrubProgress(cLayersMedia, 1);
-        },
-
-        onLeaveBack: function () {
-          forceScrubProgress(cLayersMedia, 0);
-
-          prepareScrubVideo(insightsMedia, getScrubPrepareOptions("insights"));
-        },
+      onLeaveBack: function () {
+        hideLayerMap();
       },
     });
 
-    cLayersTimeline.to(
-      progressState,
-      {
-        value: 1,
-        duration: 1,
-        ease: "none",
+    ScrollTrigger.create({
+      trigger: cLayers,
+      start: "top top",
+      end: "bottom top",
 
-        onUpdate: function () {
-          setScrubProgress(cLayersMedia, progressState.value);
-        },
+      onEnter: function () {
+        prepareCLayersVideo();
+
+        releaseScrubVideo(insightsMedia);
       },
-      0,
-    );
+
+      onEnterBack: function () {
+        prepareCLayersVideo();
+      },
+
+      onLeaveBack: function () {
+        hideLayerMap();
+
+        if (activeLayer) {
+          resetLayers({
+            immediate: true,
+            resetVideo: true,
+          });
+        }
+
+        prepareScrubVideo(insightsMedia, getScrubPrepareOptions("insights"));
+      },
+    });
 
     return cLayersMedia;
   }
@@ -1779,7 +2495,32 @@ function initBackgroundMedia() {
 
   const cLayersReadyPromise = initCLayers(insightsReadyPromise);
 
-  initStaticMediaSections(cLayersReadyPromise);
+  const staticMediaReadyPromise = initStaticMediaSections(cLayersReadyPromise);
+
+  Promise.all([cLayersReadyPromise, staticMediaReadyPromise]).then(function () {
+    initContentFades();
+
+    requestAnimationFrame(function () {
+      ScrollTrigger.sort();
+      ScrollTrigger.refresh();
+    });
+  });
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      ScrollTrigger.refresh();
+    });
+  }
+
+  window.addEventListener(
+    "load",
+    function () {
+      ScrollTrigger.refresh();
+    },
+    {
+      once: true,
+    },
+  );
 }
 
 document.addEventListener("DOMContentLoaded", function () {
