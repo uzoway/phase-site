@@ -1285,7 +1285,7 @@ function initTechSection() {
       scrollTrigger: {
         trigger: section,
         start: "top top",
-        end: () => `+=${totalDuration * 100}%`,
+        end: () => `+=${(totalDuration / 2) * 100}%`,
         pin: true,
         scrub: 0.7,
         invalidateOnRefresh: true,
@@ -1327,14 +1327,14 @@ function initTechSection() {
       defaults: { ease: "none" },
       scrollTrigger: {
         trigger: mobileTrigger,
-        //start: 'top 2rem',
         start: () => {
           const rem = parseFloat(
             getComputedStyle(document.documentElement).fontSize,
           );
+
           return `top ${rem * 2}px`;
         },
-        end: () => `+=${totalDuration * 100}%`,
+        end: () => `+=${(totalDuration / 2) * 100}%`,
         pin: section,
         scrub: 0.7,
         invalidateOnRefresh: true,
