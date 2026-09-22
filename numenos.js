@@ -2526,3 +2526,5 @@ function initBackgroundMedia() {
 document.addEventListener("DOMContentLoaded", function () {
   initBackgroundMedia();
 });
+
+console.log("is working locally");
