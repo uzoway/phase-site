@@ -1,4 +1,3 @@
-/* Updated fix for new scroll interaction */
 function initNumenosMedia() {
   gsap.registerPlugin(ScrollTrigger);
 
@@ -1162,8 +1161,10 @@ function initNumenosMedia() {
     );
   }
 
-  function createTitleReveal(el) {
+  function createTitleReveal(el, options) {
     if (reducedMotion.matches || !el) return;
+
+    options = options || {};
 
     gsap.set(el, {
       opacity: 0,
@@ -1176,8 +1177,8 @@ function initNumenosMedia() {
       ease: "none",
       scrollTrigger: {
         trigger: el,
-        start: "top 90%",
-        end: "top 62%",
+        start: options.enterStart || "top 90%",
+        end: options.enterEnd || "top 62%",
         scrub: CONFIG.viewportFadeScrub,
         invalidateOnRefresh: true,
       },
@@ -1196,8 +1197,8 @@ function initNumenosMedia() {
         immediateRender: false,
         scrollTrigger: {
           trigger: el,
-          start: "top top",
-          end: "bottom top",
+          start: options.exitStart || "top top",
+          end: options.exitEnd || "bottom top",
           scrub: CONFIG.viewportFadeScrub,
           invalidateOnRefresh: true,
         },
@@ -1362,11 +1363,12 @@ function initNumenosMedia() {
         });
     }
 
-    [".pipeline_title", ".team_title", ".news_title"].forEach(
-      function (selector) {
-        createTitleReveal(document.querySelector(selector));
-      },
-    );
+    createTitleReveal(document.querySelector(".pipeline_title"));
+    createTitleReveal(document.querySelector(".team_title"));
+    createTitleReveal(document.querySelector(".news_title"), {
+      exitStart: "center top",
+      exitEnd: "bottom -8%",
+    });
   }
 
   function preparePlaybackVideo(media, options) {
