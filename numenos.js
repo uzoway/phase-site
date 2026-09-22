@@ -33,6 +33,7 @@ function initBackgroundMedia() {
     aboutMediaRevealStart: "top 98%",
     aboutMediaRevealEnd: "top 55%",
     aboutMediaRevealScrub: 0.55,
+    aboutPlaybackStart: "top 50%",
 
     storyMediaRevealStart: "top 90%",
     storyMediaRevealEnd: "top 60%",
@@ -64,21 +65,23 @@ function initBackgroundMedia() {
     staticMediaRevealEnd: "top 25%",
     staticMediaRevealScrub: 0.55,
 
-    storyScrubStart: "top 50%",
-    storyScrubEnd: "bottom 100%",
-    storyScrub: 0.7,
     storyPreloadStart: "top 80%",
     storyFinalTailVh: 180,
     storyIntroGapVh: 40,
+    storyStepTriggerStart: "top 72%",
+    storyPlaybackDelayVh: 10,
+    storyVideoCrossfade: 0.28,
+    storyVideoBufferSeconds: 1.5,
+    storyVideoBufferFraction: 0.2,
+    storyVideoBufferMaxWait: 6000,
 
-    insightsScrubViewport: 0.55,
-    insightsScrubStart: "top 55%",
-    insightsScrubEnd: "bottom 55%",
-    insightsScrub: 0.65,
     insightsPreloadStart: "top 200%",
-    insightsContentStartSeconds: 4,
-    insightsContentEntryViewport: 0.92,
+    insightsPlaybackStart: "top 50%",
     insightsFinalVisualHoldVh: 60,
+
+    videoLoopFadeOut: 0.12,
+    videoLoopFadeIn: 0.16,
+    videoLoopSeekTimeout: 350,
 
     viewportFadeScrub: 0.28,
     viewportFadeBlur: 4,
@@ -94,11 +97,6 @@ function initBackgroundMedia() {
     heroFadeBlur: 4,
     heroFadeHold: 0.22,
 
-    aboutReplayFadeOut: 0.18,
-    aboutReplayFadeIn: 0.35,
-    aboutReplaySeekTimeout: 400,
-
-    webKitSeekWatchdog: isIOS ? 320 : 220,
     webKitPrimeTimeout: isIOS ? 450 : 300,
   };
 
@@ -119,8 +117,6 @@ function initBackgroundMedia() {
       ready: false,
       primed: false,
       primePromise: null,
-      scrubber: null,
-      scrubProgress: 0,
     });
 
     gsap.set(item, {
@@ -161,29 +157,16 @@ function initBackgroundMedia() {
     return mediaMap.get(key) || null;
   }
 
-  function getScrubPrepareOptions(role) {
+  function getVideoPrepareOptions(role) {
     if (!useWebKitMediaWorkarounds) {
       return {};
     }
 
-    if (role === "about") {
+    if (role === "about" || role === "insights") {
       return {
-        bufferFraction: 0.9,
-        maxWaitMs: 9000,
-      };
-    }
-
-    if (role === "story") {
-      return {
-        bufferFraction: 0.75,
-        maxWaitMs: 12000,
-      };
-    }
-
-    if (role === "insights") {
-      return {
-        bufferFraction: 0.9,
-        maxWaitMs: 9000,
+        bufferSeconds: 2,
+        bufferFraction: 0.2,
+        maxWaitMs: 6000,
       };
     }
 
@@ -436,14 +419,24 @@ function initBackgroundMedia() {
     });
   }
 
-  function tweenVideoOpacity(video, opacity, duration) {
+  function tweenVideoOpacity(video, opacity, duration, ease) {
     return new Promise(function (resolve) {
+      let settled = false;
+
+      function finish() {
+        if (settled) return;
+
+        settled = true;
+        resolve();
+      }
+
       gsap.to(video, {
         opacity,
         duration,
-        ease: "power1.out",
+        ease,
         overwrite: true,
-        onComplete: resolve,
+        onComplete: finish,
+        onInterrupt: finish,
       });
     });
   }
@@ -492,14 +485,10 @@ function initBackgroundMedia() {
             await waitForVideoSignal(video, CONFIG.webKitPrimeTimeout);
           }
 
-          const desiredTime = safeDuration * media.scrubProgress;
-
-          if (isTimeBuffered(video, desiredTime)) {
-            video.currentTime = desiredTime;
+          if (isTimeBuffered(video, 0)) {
+            video.currentTime = 0;
 
             await waitForVideoSignal(video, CONFIG.webKitPrimeTimeout);
-          } else if (isTimeBuffered(video, 0)) {
-            video.currentTime = 0;
           }
         }
       } catch (error) {}
@@ -569,8 +558,11 @@ function initBackgroundMedia() {
 
     configureVideo(video);
 
-    video.loop = false;
-    video.pause();
+    video.loop = options.loop === true;
+
+    if (options.pause !== false) {
+      video.pause();
+    }
 
     const ready = await waitForVideoReady(video);
 
@@ -583,6 +575,7 @@ function initBackgroundMedia() {
         bufferSeconds: options.bufferSeconds,
         bufferFraction: options.bufferFraction,
         maxWaitMs: options.maxWaitMs,
+        allowReadyState: options.allowReadyState,
       });
     }
 
@@ -595,14 +588,29 @@ function initBackgroundMedia() {
     return true;
   }
 
-  async function restartPlaybackVideo(media, options = {}) {
-    if (!media || !media.video) {
-      return false;
+  function stopSmoothLoopingPlayback(media, options = {}) {
+    if (!media || !media.video) return;
+
+    const controller = media.smoothLoopController;
+
+    if (controller) {
+      controller.active = false;
+      controller.runId += 1;
+      controller.video.removeEventListener("ended", controller.handleEnded);
+      media.smoothLoopController = null;
     }
 
-    const video = media.video;
+    gsap.killTweensOf(media.video);
 
-    const smooth = options.smooth === true;
+    if (options.pause !== false) {
+      media.video.pause();
+    }
+  }
+
+  async function startSmoothLoopingPlayback(media, options = {}) {
+    if (!media || !media.video || reducedMotion.matches) {
+      return false;
+    }
 
     const shouldContinue =
       typeof options.shouldContinue === "function"
@@ -611,46 +619,109 @@ function initBackgroundMedia() {
             return true;
           };
 
-    configureVideo(video);
+    stopSmoothLoopingPlayback(media, {
+      pause: false,
+    });
+
+    const ready = await preparePlaybackVideo(media, {
+      ...options,
+      loop: false,
+      pause: false,
+    });
+
+    if (!ready || !shouldContinue()) {
+      return false;
+    }
+
+    const video = media.video;
 
     video.loop = false;
 
-    if (smooth) {
-      await tweenVideoOpacity(video, 0, CONFIG.aboutReplayFadeOut);
+    const controller = {
+      active: true,
+      runId: 0,
+      video,
+      handleEnded: null,
+    };
 
-      if (!shouldContinue()) {
-        return false;
+    media.smoothLoopController = controller;
+
+    async function restartLoop() {
+      if (!controller.active || !shouldContinue()) {
+        return;
       }
+
+      const runId = ++controller.runId;
+
+      await tweenVideoOpacity(video, 0, CONFIG.videoLoopFadeOut, "power1.in");
+
+      if (
+        !controller.active ||
+        runId !== controller.runId ||
+        !shouldContinue()
+      ) {
+        return;
+      }
+
+      video.pause();
+
+      try {
+        video.currentTime = 0;
+        await waitForVideoSignal(video, CONFIG.videoLoopSeekTimeout);
+      } catch (error) {}
+
+      if (
+        !controller.active ||
+        runId !== controller.runId ||
+        !shouldContinue()
+      ) {
+        return;
+      }
+
+      safePlay(video);
+
+      gsap.to(video, {
+        opacity: 1,
+        duration: CONFIG.videoLoopFadeIn,
+        ease: "power1.out",
+        overwrite: true,
+      });
     }
 
-    video.pause();
+    controller.handleEnded = function () {
+      restartLoop();
+    };
 
-    try {
-      video.currentTime = 0;
-    } catch (error) {}
+    video.addEventListener("ended", controller.handleEnded);
 
-    if (smooth) {
-      await waitForVideoSignal(video, CONFIG.aboutReplaySeekTimeout);
+    if (
+      video.ended ||
+      (video.duration &&
+        Number.isFinite(video.duration) &&
+        video.currentTime >= video.duration - 0.08)
+    ) {
+      gsap.set(video, {
+        opacity: 0,
+      });
 
-      if (!shouldContinue()) {
-        return false;
-      }
+      try {
+        video.currentTime = 0;
+        await waitForVideoSignal(video, CONFIG.videoLoopSeekTimeout);
+      } catch (error) {}
+    }
+
+    if (!controller.active || !shouldContinue()) {
+      return false;
     }
 
     safePlay(video);
 
-    if (smooth) {
-      gsap.to(video, {
-        opacity: 1,
-        duration: CONFIG.aboutReplayFadeIn,
-        ease: "power1.out",
-        overwrite: true,
-      });
-    } else {
-      gsap.set(video, {
-        opacity: 1,
-      });
-    }
+    gsap.to(video, {
+      opacity: 1,
+      duration: CONFIG.videoLoopFadeIn,
+      ease: "power1.out",
+      overwrite: true,
+    });
 
     return true;
   }
@@ -658,311 +729,7 @@ function initBackgroundMedia() {
   function pausePlaybackVideo(media) {
     if (!media || !media.video) return;
 
-    media.video.pause();
-  }
-
-  function createVideoScrubber(video) {
-    let targetTime = 0;
-    let isSeeking = false;
-    let rafId = null;
-    let watchdogId = null;
-    let frameCallbackId = null;
-    let destroyed = false;
-
-    const seekThreshold = useWebKitMediaWorkarounds ? 0.025 : 0.018;
-
-    function getSafeDuration() {
-      if (!video.duration || !Number.isFinite(video.duration)) {
-        return 0;
-      }
-
-      return Math.max(0, video.duration - 0.034);
-    }
-
-    function getTimeFromProgress(progress) {
-      const duration = getSafeDuration();
-
-      if (!duration) return 0;
-
-      return duration * gsap.utils.clamp(0, 1, progress);
-    }
-
-    function clearSeekGuards() {
-      clearTimeout(watchdogId);
-
-      watchdogId = null;
-
-      if (
-        frameCallbackId !== null &&
-        typeof video.cancelVideoFrameCallback === "function"
-      ) {
-        try {
-          video.cancelVideoFrameCallback(frameCallbackId);
-        } catch (error) {}
-      }
-
-      frameCallbackId = null;
-    }
-
-    function completeSeek() {
-      if (destroyed) return;
-
-      clearSeekGuards();
-
-      isSeeking = false;
-
-      if (Math.abs(targetTime - video.currentTime) > seekThreshold) {
-        queueSeek();
-      }
-    }
-
-    function armSeekGuards() {
-      clearSeekGuards();
-
-      watchdogId = setTimeout(completeSeek, CONFIG.webKitSeekWatchdog);
-
-      if (typeof video.requestVideoFrameCallback === "function") {
-        try {
-          frameCallbackId = video.requestVideoFrameCallback(completeSeek);
-        } catch (error) {
-          frameCallbackId = null;
-        }
-      }
-    }
-
-    function canSeekToTarget() {
-      if (!useWebKitMediaWorkarounds) {
-        return true;
-      }
-
-      return isTimeBuffered(video, targetTime);
-    }
-
-    function queueSeek() {
-      if (destroyed || isSeeking || rafId !== null) {
-        return;
-      }
-
-      rafId = requestAnimationFrame(performSeek);
-    }
-
-    function performSeek() {
-      rafId = null;
-
-      if (destroyed || isSeeking) {
-        return;
-      }
-
-      const duration = getSafeDuration();
-
-      if (!duration) return;
-
-      targetTime = gsap.utils.clamp(0, duration, targetTime);
-
-      const difference = targetTime - video.currentTime;
-
-      if (Math.abs(difference) < seekThreshold) {
-        return;
-      }
-
-      if (!canSeekToTarget()) {
-        return;
-      }
-
-      isSeeking = true;
-
-      try {
-        video.currentTime = targetTime;
-
-        if (useWebKitMediaWorkarounds) {
-          armSeekGuards();
-        }
-      } catch (error) {
-        isSeeking = false;
-      }
-    }
-
-    function handleSeeked() {
-      completeSeek();
-    }
-
-    function handleProgress() {
-      if (!isSeeking) {
-        queueSeek();
-      }
-    }
-
-    function handleLoadedData() {
-      if (!isSeeking) {
-        queueSeek();
-      }
-    }
-
-    video.addEventListener("seeked", handleSeeked);
-
-    video.addEventListener("progress", handleProgress);
-
-    video.addEventListener("loadeddata", handleLoadedData);
-
-    return {
-      setProgress: function (progress) {
-        const duration = getSafeDuration();
-
-        if (!duration) return;
-
-        targetTime = getTimeFromProgress(progress);
-
-        queueSeek();
-      },
-
-      forceProgress: function (progress) {
-        const duration = getSafeDuration();
-
-        if (!duration) return;
-
-        targetTime = getTimeFromProgress(progress);
-
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-
-          rafId = null;
-        }
-
-        if (useWebKitMediaWorkarounds && !canSeekToTarget()) {
-          return;
-        }
-
-        clearSeekGuards();
-
-        isSeeking = false;
-
-        performSeek();
-      },
-
-      reset: function () {
-        targetTime = 0;
-
-        if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-          try {
-            video.currentTime = 0;
-          } catch (error) {}
-        }
-      },
-
-      destroy: function () {
-        destroyed = true;
-
-        clearSeekGuards();
-
-        video.removeEventListener("seeked", handleSeeked);
-
-        video.removeEventListener("progress", handleProgress);
-
-        video.removeEventListener("loadeddata", handleLoadedData);
-
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-        }
-      },
-    };
-  }
-
-  function setScrubProgress(media, progress) {
-    if (!media) return;
-
-    media.scrubProgress = gsap.utils.clamp(0, 1, progress);
-
-    if (!media.scrubber) return;
-
-    media.scrubber.setProgress(media.scrubProgress);
-  }
-
-  function forceScrubProgress(media, progress) {
-    if (!media) return;
-
-    media.scrubProgress = gsap.utils.clamp(0, 1, progress);
-
-    if (!media.scrubber) return;
-
-    media.scrubber.forceProgress(media.scrubProgress);
-  }
-
-  async function prepareScrubVideo(media, options = {}) {
-    if (!media || !media.video || reducedMotion.matches) {
-      return false;
-    }
-
-    loadVideo(media);
-
-    const video = media.video;
-
-    configureVideo(video);
-
-    video.loop = false;
-    video.pause();
-
-    const ready = await waitForVideoReady(video);
-
-    if (!ready) {
-      return false;
-    }
-
-    if (options.bufferSeconds || options.bufferFraction) {
-      await waitForVideoBuffer(video, {
-        bufferSeconds: options.bufferSeconds,
-        bufferFraction: options.bufferFraction,
-        maxWaitMs: options.maxWaitMs,
-      });
-    }
-
-    if (useWebKitMediaWorkarounds) {
-      await primeVideoDecoder(media);
-    }
-
-    if (!media.scrubber) {
-      media.scrubber = createVideoScrubber(video);
-    }
-
-    revealVideo(media, 0.35);
-
-    media.scrubber.setProgress(media.scrubProgress);
-
-    return true;
-  }
-
-  function releaseScrubVideo(media) {
-    if (!useWebKitMediaWorkarounds || !media || !media.video || !media.loaded) {
-      return;
-    }
-
-    const video = media.video;
-
-    video.pause();
-
-    if (media.scrubber) {
-      media.scrubber.destroy();
-      media.scrubber = null;
-    }
-
-    media.primePromise = null;
-    media.primed = false;
-    media.ready = false;
-    media.loaded = false;
-
-    gsap.killTweensOf(video);
-
-    gsap.set(video, {
-      opacity: 0,
-    });
-
-    video.removeAttribute("src");
-
-    video.preload = "none";
-    video.setAttribute("preload", "none");
-
-    try {
-      video.load();
-    } catch (error) {}
+    stopSmoothLoopingPlayback(media);
   }
 
   function createStackedMediaReveal(
@@ -1310,68 +1077,24 @@ function initBackgroundMedia() {
     });
   }
 
-  function createInsightsSpacingController(insights, contentRoot, media) {
-    if (!insights || !contentRoot || !media || !media.video) {
+  function createInsightsSpacingController(insights, contentRoot) {
+    if (!insights || !contentRoot) {
       return function () {
         return false;
       };
     }
 
     const computedStyle = window.getComputedStyle(contentRoot);
-
     const basePaddingTop = parseFloat(computedStyle.paddingTop) || 0;
-
     const basePaddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
 
     function updateInsightsSpacing() {
-      const video = media.video;
-
-      if (!video.duration || !Number.isFinite(video.duration)) {
-        return false;
-      }
-
-      const contentStartProgress = gsap.utils.clamp(
-        0,
-        0.9,
-        CONFIG.insightsContentStartSeconds / video.duration,
-      );
-
       const viewportHeight = window.innerHeight;
 
       contentRoot.style.paddingTop = `${basePaddingTop}px`;
-
       contentRoot.style.paddingBottom = `${
         basePaddingBottom +
         (viewportHeight * CONFIG.insightsFinalVisualHoldVh) / 100
-      }px`;
-
-      const firstTarget =
-        getInsightsTextTargets(insights)[0] || contentRoot.firstElementChild;
-
-      if (!firstTarget) {
-        return false;
-      }
-
-      const sectionRect = insights.getBoundingClientRect();
-
-      const firstTargetRect = firstTarget.getBoundingClientRect();
-
-      const firstTargetOffset = firstTargetRect.top - sectionRect.top;
-
-      const baseScrollDistance = insights.offsetHeight;
-
-      const desiredViewportOffset =
-        (CONFIG.insightsContentEntryViewport - CONFIG.insightsScrubViewport) *
-        viewportHeight;
-
-      const extraPaddingTop =
-        (contentStartProgress * baseScrollDistance +
-          desiredViewportOffset -
-          firstTargetOffset) /
-        (1 - contentStartProgress);
-
-      contentRoot.style.paddingTop = `${
-        basePaddingTop + Math.max(0, extraPaddingTop)
       }px`;
 
       return true;
@@ -1554,7 +1277,6 @@ function initBackgroundMedia() {
 
   async function initAbout(heroReadyPromise) {
     const hero = document.querySelector('[data-media-role="hero"]');
-
     const about = document.querySelector('[data-media-role="about"]');
 
     if (!hero || !about) {
@@ -1562,7 +1284,6 @@ function initBackgroundMedia() {
     }
 
     const heroMedia = getSectionMedia(hero);
-
     const aboutMedia = getSectionMedia(about);
 
     if (!heroMedia || !aboutMedia) {
@@ -1575,8 +1296,14 @@ function initBackgroundMedia() {
       return aboutMedia;
     }
 
+    let aboutPlaybackActive = false;
+    let aboutPlaybackRunId = 0;
+
     heroReadyPromise.then(function () {
-      preparePlaybackVideo(aboutMedia, getScrubPrepareOptions("about"));
+      preparePlaybackVideo(aboutMedia, {
+        ...getVideoPrepareOptions("about"),
+        loop: true,
+      });
     });
 
     createStackedMediaReveal(about, aboutMedia, heroMedia, {
@@ -1585,10 +1312,7 @@ function initBackgroundMedia() {
       scrub: CONFIG.aboutMediaRevealScrub,
     });
 
-    let aboutPlaybackActive = false;
-    let aboutPlaybackRunId = 0;
-
-    async function startAboutPlayback(options = {}) {
+    async function startAboutPlayback() {
       aboutPlaybackRunId += 1;
 
       const runId = aboutPlaybackRunId;
@@ -1597,18 +1321,8 @@ function initBackgroundMedia() {
 
       setHeroPlayback(false, heroMedia);
 
-      const ready = await preparePlaybackVideo(
-        aboutMedia,
-        getScrubPrepareOptions("about"),
-      );
-
-      if (!ready || !aboutPlaybackActive || runId !== aboutPlaybackRunId) {
-        return;
-      }
-
-      await restartPlaybackVideo(aboutMedia, {
-        smooth: options.smooth === true,
-
+      await startSmoothLoopingPlayback(aboutMedia, {
+        ...getVideoPrepareOptions("about"),
         shouldContinue: function () {
           return aboutPlaybackActive && runId === aboutPlaybackRunId;
         },
@@ -1622,21 +1336,22 @@ function initBackgroundMedia() {
       pausePlaybackVideo(aboutMedia);
     }
 
+    aboutMedia.playbackController = {
+      start: startAboutPlayback,
+      stop: stopAboutPlayback,
+    };
+
     ScrollTrigger.create({
       trigger: about,
-      start: CONFIG.aboutMediaRevealEnd,
-      end: "bottom 90%",
+      start: CONFIG.aboutPlaybackStart,
+      end: "bottom top",
 
       onEnter: function () {
-        startAboutPlayback({
-          smooth: false,
-        });
+        startAboutPlayback();
       },
 
       onEnterBack: function () {
-        startAboutPlayback({
-          smooth: true,
-        });
+        startAboutPlayback();
       },
 
       onLeave: function () {
@@ -1645,9 +1360,19 @@ function initBackgroundMedia() {
 
       onLeaveBack: function () {
         stopAboutPlayback();
-
         setHeroPlayback(true, heroMedia);
       },
+    });
+
+    document.addEventListener("visibilitychange", function () {
+      if (!aboutPlaybackActive) return;
+
+      if (document.hidden) {
+        pausePlaybackVideo(aboutMedia);
+        return;
+      }
+
+      startAboutPlayback();
     });
 
     return aboutMedia;
@@ -1657,7 +1382,6 @@ function initBackgroundMedia() {
     await aboutReadyPromise;
 
     const about = document.querySelector('[data-media-role="about"]');
-
     const story = document.querySelector('[data-media-role="story"]');
 
     if (!about || !story) {
@@ -1665,7 +1389,6 @@ function initBackgroundMedia() {
     }
 
     const aboutMedia = getSectionMedia(about);
-
     const storyMedia = getSectionMedia(story);
 
     if (!aboutMedia || !storyMedia) {
@@ -1673,6 +1396,13 @@ function initBackgroundMedia() {
     }
 
     const aboutTitle = about.querySelector("[data-about-title]");
+    const storyPlayers = Array.from(
+      storyMedia.item.querySelectorAll("[data-story-player]"),
+    );
+    const sourceElements = Array.from(
+      storyMedia.item.querySelectorAll("[data-story-source]"),
+    );
+    const storyRows = Array.from(story.querySelectorAll("[data-story-row]"));
 
     story.style.setProperty(
       "--story-final-tail",
@@ -1690,27 +1420,720 @@ function initBackgroundMedia() {
       return storyMedia;
     }
 
-    ScrollTrigger.create({
-      trigger: about,
-      start: CONFIG.storyPreloadStart,
-      once: true,
+    if (storyPlayers.length !== 2 || sourceElements.length < 5) {
+      console.warn(
+        "Story media requires two [data-story-player] videos and five [data-story-source] entries.",
+      );
 
-      onEnter: function () {
-        prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
-      },
+      return storyMedia;
+    }
+
+    const playerA =
+      storyMedia.item.querySelector('[data-story-player="a"]') ||
+      storyPlayers[0];
+    const playerB =
+      storyMedia.item.querySelector('[data-story-player="b"]') ||
+      storyPlayers[1];
+
+    const sourceMap = new Map();
+    const rowMap = new Map();
+
+    sourceElements.forEach(function (element) {
+      const key = element.getAttribute("data-story-source");
+
+      if (key) {
+        sourceMap.set(key, element);
+      }
     });
 
-    const storyRevealTrigger = aboutTitle || story;
+    storyRows.forEach(function (row, index) {
+      const explicitStep = Number(row.getAttribute("data-story-step"));
+      const step =
+        Number.isFinite(explicitStep) && explicitStep > 0
+          ? explicitStep
+          : index + 1;
 
+      rowMap.set(step, row);
+    });
+
+    function getStorySource(key) {
+      const sourceElement = sourceMap.get(key);
+
+      if (!sourceElement) return "";
+
+      const desktopSource =
+        sourceElement.getAttribute("data-video-desktop") || "";
+      const mobileSource =
+        sourceElement.getAttribute("data-video-mobile") || "";
+
+      if (mobileQuery.matches && mobileSource) {
+        return mobileSource;
+      }
+
+      return desktopSource || mobileSource || "";
+    }
+
+    function getOtherStoryPlayer(player) {
+      return player === playerA ? playerB : playerA;
+    }
+
+    function getStoryPlayerForKey(key, preferHidden = true) {
+      const preparedPlayer = storyPlayers.find(function (video) {
+        return video.dataset.storySourceKey === key;
+      });
+
+      if (preparedPlayer) {
+        return preparedPlayer;
+      }
+
+      if (!activeStoryPlayer) {
+        return playerA;
+      }
+
+      return preferHidden
+        ? getOtherStoryPlayer(activeStoryPlayer)
+        : activeStoryPlayer;
+    }
+
+    async function prepareStoryAsset(video, key, options = {}) {
+      if (!video) return false;
+
+      const source = getStorySource(key);
+
+      if (!source) {
+        console.warn(`Missing Story video source for ${key}.`);
+        return false;
+      }
+
+      configureVideo(video);
+
+      video.loop = false;
+      video.preload = "auto";
+      video.setAttribute("preload", "auto");
+
+      if (video.dataset.storySourceUrl !== source) {
+        video.pause();
+        video.src = source;
+        video.dataset.storySourceUrl = source;
+        video.load();
+      }
+
+      video.dataset.storySourceKey = key;
+
+      const ready = await waitForVideoReady(video);
+
+      if (!ready) {
+        return false;
+      }
+
+      if (options.buffer !== false) {
+        await waitForVideoBuffer(video, {
+          bufferSeconds: CONFIG.storyVideoBufferSeconds,
+          bufferFraction: CONFIG.storyVideoBufferFraction,
+          maxWaitMs: CONFIG.storyVideoBufferMaxWait,
+          allowReadyState: true,
+        });
+      }
+
+      return true;
+    }
+
+    async function resetStoryPlayer(video) {
+      if (!video) return;
+
+      video.pause();
+
+      if (Math.abs(video.currentTime) < 0.03) {
+        return;
+      }
+
+      try {
+        video.currentTime = 0;
+        await waitForVideoSignal(video, CONFIG.webKitPrimeTimeout);
+      } catch (error) {}
+    }
+
+    async function seekStoryPlayerToEnd(video) {
+      if (!video || !video.duration || !Number.isFinite(video.duration)) {
+        return;
+      }
+
+      const targetTime = Math.max(0, video.duration - 0.05);
+
+      video.pause();
+
+      if (Math.abs(video.currentTime - targetTime) < 0.03) {
+        return;
+      }
+
+      try {
+        video.currentTime = targetTime;
+        await waitForVideoSignal(video, CONFIG.webKitPrimeTimeout);
+      } catch (error) {}
+    }
+
+    function waitForStoryCrossfade(incoming, outgoing) {
+      return new Promise(function (resolve) {
+        const targets = outgoing ? [incoming, outgoing] : [incoming];
+
+        gsap.killTweensOf(targets);
+
+        gsap.set(incoming, {
+          zIndex: 2,
+        });
+
+        if (outgoing) {
+          gsap.set(outgoing, {
+            zIndex: 1,
+          });
+        }
+
+        const timeline = gsap.timeline({
+          onComplete: resolve,
+        });
+
+        timeline.to(
+          incoming,
+          {
+            opacity: 1,
+            duration: CONFIG.storyVideoCrossfade,
+            ease: "power1.inOut",
+          },
+          0,
+        );
+
+        if (outgoing) {
+          timeline.to(
+            outgoing,
+            {
+              opacity: 0,
+              duration: CONFIG.storyVideoCrossfade,
+              ease: "power1.inOut",
+            },
+            0,
+          );
+        }
+      });
+    }
+
+    async function activateStoryPlayer(video, options = {}) {
+      if (!video) return false;
+
+      stopStorySmoothLoop();
+
+      const outgoing = activeStoryPlayer === video ? null : activeStoryPlayer;
+
+      video.loop = false;
+
+      if (options.play === true) {
+        try {
+          const playPromise = video.play();
+
+          if (playPromise) {
+            await playPromise;
+          }
+        } catch (error) {}
+      } else {
+        video.pause();
+      }
+
+      if (activeStoryPlayer !== video) {
+        await waitForStoryCrossfade(video, outgoing);
+      } else {
+        gsap.set(video, {
+          opacity: 1,
+          zIndex: 2,
+        });
+      }
+
+      if (outgoing) {
+        outgoing.pause();
+        outgoing.loop = false;
+
+        gsap.set(outgoing, {
+          opacity: 0,
+          zIndex: 1,
+        });
+      }
+
+      activeStoryPlayer = video;
+      activeStoryShouldPlay = options.play === true;
+
+      if (options.loop === true && options.play === true) {
+        startStorySmoothLoop(video);
+      }
+
+      return true;
+    }
+
+    function stopStorySmoothLoop() {
+      if (!storyLoopCleanup) return;
+
+      const cleanup = storyLoopCleanup;
+
+      storyLoopCleanup = null;
+      cleanup();
+    }
+
+    function startStorySmoothLoop(video) {
+      stopStorySmoothLoop();
+
+      let active = true;
+      let loopRunId = 0;
+
+      async function restartLoop() {
+        if (!active || !storyActive || activeStoryPlayer !== video) {
+          return;
+        }
+
+        const runId = ++loopRunId;
+
+        await tweenVideoOpacity(video, 0, CONFIG.videoLoopFadeOut, "power1.in");
+
+        if (
+          !active ||
+          runId !== loopRunId ||
+          !storyActive ||
+          activeStoryPlayer !== video
+        ) {
+          return;
+        }
+
+        video.pause();
+
+        try {
+          video.currentTime = 0;
+          await waitForVideoSignal(video, CONFIG.videoLoopSeekTimeout);
+        } catch (error) {}
+
+        if (
+          !active ||
+          runId !== loopRunId ||
+          !storyActive ||
+          activeStoryPlayer !== video
+        ) {
+          return;
+        }
+
+        safePlay(video);
+
+        gsap.to(video, {
+          opacity: 1,
+          duration: CONFIG.videoLoopFadeIn,
+          ease: "power1.out",
+          overwrite: true,
+        });
+      }
+
+      function handleEnded() {
+        restartLoop();
+      }
+
+      video.loop = false;
+      video.addEventListener("ended", handleEnded);
+
+      storyLoopCleanup = function () {
+        active = false;
+        loopRunId += 1;
+        video.removeEventListener("ended", handleEnded);
+        gsap.killTweensOf(video);
+      };
+    }
+
+    function cancelStoryWait() {
+      if (!storyWaitCleanup) return;
+
+      const cleanup = storyWaitCleanup;
+
+      storyWaitCleanup = null;
+      cleanup();
+    }
+
+    function waitForStoryVideoEnd(video) {
+      return new Promise(function (resolve) {
+        let settled = false;
+
+        function cleanup() {
+          if (settled) return;
+
+          settled = true;
+
+          video.removeEventListener("ended", handleEnd);
+          video.removeEventListener("error", handleEnd);
+
+          if (storyWaitCleanup === cleanup) {
+            storyWaitCleanup = null;
+          }
+
+          resolve();
+        }
+
+        function handleEnd() {
+          cleanup();
+        }
+
+        storyWaitCleanup = cleanup;
+
+        video.addEventListener("ended", handleEnd, { once: true });
+        video.addEventListener("error", handleEnd, { once: true });
+
+        if (video.ended) {
+          cleanup();
+        }
+      });
+    }
+
+    async function preloadStoryKey(key) {
+      const video = getStoryPlayerForKey(key, true);
+
+      if (!video || video === activeStoryPlayer) {
+        return false;
+      }
+
+      return prepareStoryAsset(video, key, {
+        buffer: true,
+      });
+    }
+
+    async function settleStoryStep(step, runId) {
+      if (runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      if (step === 2) {
+        activeStoryShouldPlay = false;
+        return true;
+      }
+
+      const loopKey = step === 1 ? "step-1-loop" : "step-3-loop";
+      const loopPlayer = getStoryPlayerForKey(loopKey, true);
+
+      const ready = await prepareStoryAsset(loopPlayer, loopKey, {
+        loop: true,
+        buffer: true,
+      });
+
+      if (!ready || runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      await resetStoryPlayer(loopPlayer);
+
+      if (runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      await activateStoryPlayer(loopPlayer, {
+        loop: true,
+        play: true,
+      });
+
+      if (runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      if (step === 1) {
+        preloadStoryKey("step-2-transition");
+      }
+
+      return true;
+    }
+
+    async function playStoryTransition(step, runId) {
+      const transitionKey = `step-${step}-transition`;
+      const transitionPlayer = getStoryPlayerForKey(transitionKey, true);
+
+      const ready = await prepareStoryAsset(transitionPlayer, transitionKey, {
+        loop: false,
+        buffer: true,
+      });
+
+      if (!ready || runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      await resetStoryPlayer(transitionPlayer);
+
+      if (runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      await activateStoryPlayer(transitionPlayer, {
+        loop: false,
+        play: true,
+      });
+
+      if (runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      await waitForStoryVideoEnd(transitionPlayer);
+
+      if (runId !== storyActionId || !storyActive) {
+        return false;
+      }
+
+      currentStoryStep = step;
+
+      if (step === 2) {
+        activeStoryShouldPlay = false;
+        preloadStoryKey("step-3-transition");
+      }
+
+      return true;
+    }
+
+    async function processStoryQueue() {
+      if (storyProcessing || !storyActive) {
+        return;
+      }
+
+      storyProcessing = true;
+
+      const processId = ++storyProcessId;
+
+      while (storyStableUpdatePromise) {
+        const pendingStableUpdate = storyStableUpdatePromise;
+
+        await pendingStableUpdate;
+
+        if (processId !== storyProcessId || !storyActive) {
+          return;
+        }
+
+        if (storyStableUpdatePromise === pendingStableUpdate) {
+          storyStableUpdatePromise = null;
+        }
+      }
+
+      const runId = storyActionId;
+
+      while (
+        storyActive &&
+        processId === storyProcessId &&
+        runId === storyActionId &&
+        currentStoryStep < requestedStoryStep
+      ) {
+        const nextStep = currentStoryStep + 1;
+        const completed = await playStoryTransition(nextStep, runId);
+
+        if (
+          !completed ||
+          processId !== storyProcessId ||
+          runId !== storyActionId ||
+          !storyActive
+        ) {
+          break;
+        }
+
+        if (requestedStoryStep > nextStep) {
+          continue;
+        }
+
+        await settleStoryStep(nextStep, runId);
+      }
+
+      if (processId !== storyProcessId) {
+        return;
+      }
+
+      storyProcessing = false;
+
+      if (storyActive && currentStoryStep < requestedStoryStep) {
+        processStoryQueue();
+      }
+    }
+
+    function requestStoryStep(step) {
+      requestedStoryStep = Math.max(requestedStoryStep, step);
+
+      if (!storyActive) return;
+
+      processStoryQueue();
+    }
+
+    async function showStableStoryStep(step) {
+      storyActionId += 1;
+      storyProcessId += 1;
+      cancelStoryWait();
+      stopStorySmoothLoop();
+
+      storyProcessing = false;
+      requestedStoryStep = step;
+      currentStoryStep = step;
+
+      const runId = storyActionId;
+
+      if (step === 2) {
+        const transitionPlayer = getStoryPlayerForKey(
+          "step-2-transition",
+          true,
+        );
+
+        const ready = await prepareStoryAsset(
+          transitionPlayer,
+          "step-2-transition",
+          {
+            loop: false,
+            buffer: true,
+          },
+        );
+
+        if (!ready || runId !== storyActionId || !storyActive) {
+          return;
+        }
+
+        await seekStoryPlayerToEnd(transitionPlayer);
+
+        if (runId !== storyActionId || !storyActive) {
+          return;
+        }
+
+        await activateStoryPlayer(transitionPlayer, {
+          loop: false,
+          play: false,
+        });
+
+        preloadStoryKey("step-3-transition");
+        return;
+      }
+
+      const loopKey = step === 1 ? "step-1-loop" : "step-3-loop";
+      const loopPlayer = getStoryPlayerForKey(loopKey, true);
+
+      const ready = await prepareStoryAsset(loopPlayer, loopKey, {
+        loop: true,
+        buffer: true,
+      });
+
+      if (!ready || runId !== storyActionId || !storyActive) {
+        return;
+      }
+
+      if (activeStoryPlayer !== loopPlayer || loopPlayer.ended) {
+        await resetStoryPlayer(loopPlayer);
+      }
+
+      if (runId !== storyActionId || !storyActive) {
+        return;
+      }
+
+      await activateStoryPlayer(loopPlayer, {
+        loop: true,
+        play: true,
+      });
+
+      if (step === 1) {
+        preloadStoryKey("step-2-transition");
+      }
+    }
+
+    function queueStableStoryStep(step) {
+      const promise = showStableStoryStep(step);
+
+      storyStableUpdatePromise = promise;
+
+      promise.finally(function () {
+        if (storyStableUpdatePromise === promise) {
+          storyStableUpdatePromise = null;
+        }
+      });
+
+      return promise;
+    }
+
+    function pauseStoryPlayback(options = {}) {
+      storyActionId += 1;
+      storyProcessId += 1;
+      cancelStoryWait();
+      stopStorySmoothLoop();
+
+      storyProcessing = false;
+
+      if (options.deactivate === true) {
+        storyActive = false;
+      }
+
+      storyPlayers.forEach(function (video) {
+        video.pause();
+      });
+
+      activeStoryShouldPlay = false;
+    }
+
+    function activateStoryPlayback() {
+      storyActive = true;
+
+      if (aboutMedia.playbackController) {
+        aboutMedia.playbackController.stop();
+      } else {
+        pausePlaybackVideo(aboutMedia);
+      }
+
+      if (currentStoryStep === 0) {
+        requestedStoryStep = Math.max(requestedStoryStep, 1);
+        processStoryQueue();
+        return;
+      }
+
+      queueStableStoryStep(currentStoryStep);
+    }
+
+    storyPlayers.forEach(function (video, index) {
+      configureVideo(video);
+      video.loop = false;
+      video.preload = "auto";
+      video.setAttribute("preload", "auto");
+
+      gsap.set(video, {
+        opacity: 0,
+        zIndex: index === 0 ? 2 : 1,
+      });
+    });
+
+    let activeStoryPlayer = null;
+    let activeStoryShouldPlay = false;
+    let storyActive = false;
+    let storyProcessing = false;
+    let storyProcessId = 0;
+    let storyActionId = 0;
+    let storyWaitCleanup = null;
+    let storyLoopCleanup = null;
+    let storyStableUpdatePromise = null;
+    let currentStoryStep = 0;
+    let requestedStoryStep = 0;
+
+    storyMedia.storyController = {
+      pause: function () {
+        pauseStoryPlayback();
+      },
+      resumeFinalState: function () {
+        storyActive = true;
+        queueStableStoryStep(3);
+      },
+    };
+
+    const storyRevealTrigger = aboutTitle || story;
     const storyRevealStart = aboutTitle
       ? "bottom top"
       : CONFIG.storyMediaRevealStart;
-
     const storyRevealEnd = aboutTitle
       ? function () {
           return `+=${Math.round(
             (window.innerHeight * CONFIG.storyMediaRevealDistanceVh) / 100,
           )}`;
+        }
+      : CONFIG.storyMediaRevealEnd;
+    const storyPlaybackStart = aboutTitle
+      ? function () {
+          const titleRect = aboutTitle.getBoundingClientRect();
+          const titleBottom = titleRect.bottom + window.scrollY;
+          const revealDistance =
+            (window.innerHeight * CONFIG.storyMediaRevealDistanceVh) / 100;
+          const playbackDelay =
+            (window.innerHeight * CONFIG.storyPlaybackDelayVh) / 100;
+
+          return Math.round(titleBottom + revealDistance + playbackDelay);
         }
       : CONFIG.storyMediaRevealEnd;
 
@@ -1720,63 +2143,105 @@ function initBackgroundMedia() {
       scrub: CONFIG.storyMediaRevealScrub,
     });
 
-    const progressState = {
-      value: 0,
-    };
+    ScrollTrigger.create({
+      trigger: about,
+      start: CONFIG.storyPreloadStart,
+      once: true,
 
-    const storyTimeline = gsap.timeline({
-      scrollTrigger: {
-        trigger: story,
-        start: CONFIG.storyScrubStart,
-        end: CONFIG.storyScrubEnd,
-        scrub: CONFIG.storyScrub,
-        invalidateOnRefresh: true,
+      onEnter: function () {
+        prepareStoryAsset(playerA, "step-1-transition", {
+          loop: false,
+          buffer: true,
+        });
 
-        onEnter: function () {
-          prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
-        },
-
-        onEnterBack: function () {
-          prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
-        },
-
-        onLeave: function () {
-          forceScrubProgress(storyMedia, 1);
-        },
-
-        onLeaveBack: function () {
-          forceScrubProgress(storyMedia, 0);
-
-          preparePlaybackVideo(aboutMedia, getScrubPrepareOptions("about"));
-        },
+        prepareStoryAsset(playerB, "step-1-loop", {
+          loop: true,
+          buffer: true,
+        });
       },
     });
 
-    storyTimeline.to(
-      progressState,
-      {
-        value: 1,
-        duration: 1,
-        ease: "none",
-
-        onUpdate: function () {
-          setScrubProgress(storyMedia, progressState.value);
-        },
-      },
-      0,
-    );
-
     ScrollTrigger.create({
-      trigger: story,
-      start: "top top",
+      trigger: storyRevealTrigger,
+      start: storyPlaybackStart,
+      end: function () {
+        return `+=${Math.round(story.offsetHeight + window.innerHeight)}`;
+      },
 
       onEnter: function () {
-        releaseScrubVideo(aboutMedia);
+        activateStoryPlayback();
+      },
+
+      onEnterBack: function () {
+        storyActive = true;
+
+        if (currentStoryStep > 0) {
+          queueStableStoryStep(currentStoryStep);
+        } else {
+          requestStoryStep(1);
+        }
       },
 
       onLeaveBack: function () {
-        preparePlaybackVideo(aboutMedia, getScrubPrepareOptions("about"));
+        pauseStoryPlayback({
+          deactivate: true,
+        });
+
+        requestedStoryStep = 0;
+        currentStoryStep = 0;
+
+        storyPlayers.forEach(function (video) {
+          gsap.set(video, {
+            opacity: 0,
+          });
+        });
+
+        activeStoryPlayer = null;
+
+        if (aboutMedia.playbackController) {
+          aboutMedia.playbackController.start();
+        }
       },
+    });
+
+    [2, 3].forEach(function (step) {
+      const row = rowMap.get(step);
+
+      if (!row) {
+        console.warn(`Missing Story row for data-story-step="${step}".`);
+        return;
+      }
+
+      ScrollTrigger.create({
+        trigger: row,
+        start: CONFIG.storyStepTriggerStart,
+        end: "bottom top",
+
+        onEnter: function () {
+          requestStoryStep(step);
+        },
+
+        onLeaveBack: function () {
+          if (!storyActive) return;
+
+          queueStableStoryStep(step - 1);
+        },
+      });
+    });
+
+    document.addEventListener("visibilitychange", function () {
+      if (!storyActive || !activeStoryPlayer) return;
+
+      if (document.hidden) {
+        storyPlayers.forEach(function (video) {
+          video.pause();
+        });
+        return;
+      }
+
+      if (activeStoryShouldPlay) {
+        safePlay(activeStoryPlayer);
+      }
     });
 
     return storyMedia;
@@ -1786,7 +2251,6 @@ function initBackgroundMedia() {
     await storyReadyPromise;
 
     const story = document.querySelector('[data-media-role="story"]');
-
     const insights = document.querySelector('[data-media-role="insights"]');
 
     if (!story || !insights) {
@@ -1794,7 +2258,6 @@ function initBackgroundMedia() {
     }
 
     const storyMedia = getSectionMedia(story);
-
     const insightsMedia = getSectionMedia(insights);
 
     if (!storyMedia || !insightsMedia) {
@@ -1818,8 +2281,43 @@ function initBackgroundMedia() {
     const updateInsightsSpacing = createInsightsSpacingController(
       insights,
       contentRoot,
-      insightsMedia,
     );
+
+    updateInsightsSpacing();
+
+    let insightsPlaybackActive = false;
+    let insightsPlaybackRunId = 0;
+
+    async function startInsightsPlayback() {
+      insightsPlaybackRunId += 1;
+
+      const runId = insightsPlaybackRunId;
+
+      insightsPlaybackActive = true;
+
+      if (storyMedia.storyController) {
+        storyMedia.storyController.pause();
+      }
+
+      await startSmoothLoopingPlayback(insightsMedia, {
+        ...getVideoPrepareOptions("insights"),
+        shouldContinue: function () {
+          return insightsPlaybackActive && runId === insightsPlaybackRunId;
+        },
+      });
+    }
+
+    function stopInsightsPlayback() {
+      insightsPlaybackActive = false;
+      insightsPlaybackRunId += 1;
+
+      pausePlaybackVideo(insightsMedia);
+    }
+
+    insightsMedia.playbackController = {
+      start: startInsightsPlayback,
+      stop: stopInsightsPlayback,
+    };
 
     ScrollTrigger.addEventListener("refreshInit", updateInsightsSpacing);
 
@@ -1829,14 +2327,9 @@ function initBackgroundMedia() {
       once: true,
 
       onEnter: function () {
-        prepareScrubVideo(
-          insightsMedia,
-          getScrubPrepareOptions("insights"),
-        ).then(function (ready) {
-          if (!ready) return;
-
-          updateInsightsSpacing();
-          ScrollTrigger.refresh();
+        preparePlaybackVideo(insightsMedia, {
+          ...getVideoPrepareOptions("insights"),
+          loop: false,
         });
       },
     });
@@ -1847,53 +2340,42 @@ function initBackgroundMedia() {
       scrub: CONFIG.insightsMediaRevealScrub,
     });
 
-    const progressState = {
-      value: 0,
-    };
+    ScrollTrigger.create({
+      trigger: insights,
+      start: CONFIG.insightsPlaybackStart,
+      end: "bottom top",
 
-    const insightsTimeline = gsap.timeline({
-      scrollTrigger: {
-        trigger: insights,
-        start: CONFIG.insightsScrubStart,
-        end: CONFIG.insightsScrubEnd,
-        scrub: CONFIG.insightsScrub,
-        invalidateOnRefresh: true,
+      onEnter: function () {
+        startInsightsPlayback();
+      },
 
-        onEnter: function () {
-          prepareScrubVideo(insightsMedia, getScrubPrepareOptions("insights"));
+      onEnterBack: function () {
+        startInsightsPlayback();
+      },
 
-          releaseScrubVideo(storyMedia);
-        },
+      onLeave: function () {
+        stopInsightsPlayback();
+      },
 
-        onEnterBack: function () {
-          prepareScrubVideo(insightsMedia, getScrubPrepareOptions("insights"));
-        },
+      onLeaveBack: function () {
+        stopInsightsPlayback();
 
-        onLeave: function () {
-          forceScrubProgress(insightsMedia, 1);
-        },
-
-        onLeaveBack: function () {
-          forceScrubProgress(insightsMedia, 0);
-
-          prepareScrubVideo(storyMedia, getScrubPrepareOptions("story"));
-        },
+        if (storyMedia.storyController) {
+          storyMedia.storyController.resumeFinalState();
+        }
       },
     });
 
-    insightsTimeline.to(
-      progressState,
-      {
-        value: 1,
-        duration: 1,
-        ease: "none",
+    document.addEventListener("visibilitychange", function () {
+      if (!insightsPlaybackActive) return;
 
-        onUpdate: function () {
-          setScrubProgress(insightsMedia, progressState.value);
-        },
-      },
-      0,
-    );
+      if (document.hidden) {
+        pausePlaybackVideo(insightsMedia);
+        return;
+      }
+
+      startInsightsPlayback();
+    });
 
     return insightsMedia;
   }
@@ -2155,7 +2637,7 @@ function initBackgroundMedia() {
       cLayersReadyPromise = (async function () {
         const ready = await preparePlaybackVideo(
           cLayersMedia,
-          getScrubPrepareOptions("c-layers"),
+          getVideoPrepareOptions("c-layers"),
         );
 
         if (!ready || !cLayersMedia.video) {
@@ -2405,7 +2887,7 @@ function initBackgroundMedia() {
       onEnter: function () {
         prepareCLayersVideo();
 
-        releaseScrubVideo(insightsMedia);
+        pausePlaybackVideo(insightsMedia);
       },
 
       onEnterBack: function () {
@@ -2422,7 +2904,9 @@ function initBackgroundMedia() {
           });
         }
 
-        prepareScrubVideo(insightsMedia, getScrubPrepareOptions("insights"));
+        if (insightsMedia.playbackController) {
+          insightsMedia.playbackController.start();
+        }
       },
     });
 
@@ -2526,5 +3010,3 @@ function initBackgroundMedia() {
 document.addEventListener("DOMContentLoaded", function () {
   initBackgroundMedia();
 });
-
-console.log("is working locally");
