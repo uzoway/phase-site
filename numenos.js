@@ -45,9 +45,9 @@ function initNumenosMedia() {
     cLayersMapFadeDuration: 0.45,
     cLayersMapFadeOutStart: "bottom 75%",
     cLayersTargets: {
-      infrastructure: 0.403,
+      infrastructure: 0.3125,
       memory: 0.581,
-      application: 0.767,
+      application: 0.875,
     },
     cLayersTargetTolerance: 0.015,
     cLayersPanelInDuration: 0.42,
