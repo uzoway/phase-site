@@ -61,7 +61,7 @@ function initNumenosMedia() {
     storyStepStart: "top 60%",
     storyCrossfade: 0.35,
     storyIntroGapVh: 40,
-    storyFinalTailVh: 180,
+    storyFinalTailVh: 117,
 
     viewportFadeScrub: 0.28,
     viewportFadeBlur: 4,
@@ -222,6 +222,7 @@ function initNumenosMedia() {
 
   function loadVideo(video, url) {
     if (!video || !url) return Promise.resolve(false);
+    const requestedUrl = url;
     if (video.dataset.src !== url) {
       configureVideo(video);
       video.preload = "auto";
@@ -230,7 +231,9 @@ function initNumenosMedia() {
       video.dataset.src = url;
       video.load();
     }
-    return waitForVideoReady(video);
+    return waitForVideoReady(video).then(function (ready) {
+      return ready && video.dataset.src === requestedUrl;
+    });
   }
 
   function prepareMedia(media) {
@@ -615,6 +618,11 @@ function initNumenosMedia() {
     );
     const playerA = media.item.querySelector('[data-story-player="a"]');
     const playerB = media.item.querySelector('[data-story-player="b"]');
+    const fallbackImages = Array.from(media.item.children).filter(function (
+      child,
+    ) {
+      return child.classList.contains("bg-images_img");
+    });
     const rows = Array.from(section.querySelectorAll("[data-story-step]"));
     if (!manifestRoot || !playerA || !playerB || rows.length !== 3) return null;
 
@@ -652,9 +660,15 @@ function initNumenosMedia() {
         return url === manifestUrls[0];
       });
 
-    configureVideo(playerA);
-    configureVideo(playerB);
-    gsap.set([playerA, playerB], { opacity: 0 });
+    [playerA, playerB].forEach(function (player) {
+      configureVideo(player);
+      player.autoplay = false;
+      player.loop = false;
+      player.removeAttribute("autoplay");
+      player.pause();
+    });
+    gsap.set(fallbackImages, { autoAlpha: 0 });
+    gsap.set([playerA, playerB], { opacity: 0, zIndex: 1 });
 
     let visible = playerA;
     let idle = playerB;
@@ -665,6 +679,7 @@ function initNumenosMedia() {
     let lifecycleId = 0;
     let loopVideo = null;
     let loopStop = null;
+    let loopRunId = 0;
 
     function segmentFor(id, duration) {
       if (!duration || !Number.isFinite(duration)) {
@@ -715,6 +730,42 @@ function initNumenosMedia() {
         video.addEventListener("seeked", finish, { once: true });
         timeoutId = setTimeout(finish, isWebKit ? 450 : 250);
         seekVideo(video, time);
+      });
+    }
+
+    function waitForPresentedVideoFrame(video) {
+      if (!video) return Promise.resolve();
+
+      return new Promise(function (resolve) {
+        let resolved = false;
+        let frameCallbackId = null;
+        const timeoutId = setTimeout(finish, isWebKit ? 600 : 350);
+
+        function finish() {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(timeoutId);
+
+          if (
+            frameCallbackId !== null &&
+            typeof video.cancelVideoFrameCallback === "function"
+          ) {
+            try {
+              video.cancelVideoFrameCallback(frameCallbackId);
+            } catch (error) {}
+          }
+
+          resolve();
+        }
+
+        if (typeof video.requestVideoFrameCallback === "function") {
+          frameCallbackId = video.requestVideoFrameCallback(finish);
+          return;
+        }
+
+        requestAnimationFrame(function () {
+          requestAnimationFrame(finish);
+        });
       });
     }
 
@@ -796,11 +847,15 @@ function initNumenosMedia() {
           duration: CONFIG.storyCrossfade,
           ease: "power1.inOut",
           overwrite: true,
+          onComplete: function () {
+            hideVideo.pause();
+          },
         });
       }
     }
 
     function stopLoop() {
+      loopRunId += 1;
       if (loopStop) loopStop();
       loopStop = null;
       loopVideo = null;
@@ -809,9 +864,9 @@ function initNumenosMedia() {
     function startSegmentLoop(video, id) {
       stopLoop();
 
-      const seg = segmentFor(id, video.duration);
+      const sourceUrl = video.dataset.src;
+      const runId = loopRunId;
       video.loop = false;
-      seekVideo(video, seg.in);
       safePlay(video);
 
       loopVideo = video;
@@ -831,29 +886,40 @@ function initNumenosMedia() {
         restarting = true;
         video.pause();
         gsap.killTweensOf(video);
+        gsap.set(video, { opacity: 1 });
 
-        gsap.to(video, {
-          opacity: 0,
-          duration: CONFIG.loopFadeOut,
-          ease: "power1.out",
-          onComplete: function () {
-            if (!sectionActive || loopVideo !== video || visible !== video) {
-              restarting = false;
+        seekStoryFrame(video, segmentFor(id, video.duration).in).then(
+          function () {
+            if (
+              !sectionActive ||
+              runId !== loopRunId ||
+              loopVideo !== video ||
+              visible !== video ||
+              video.dataset.src !== sourceUrl
+            ) {
               return;
             }
 
-            seekVideo(video, segmentFor(id, video.duration).in);
             safePlay(video);
-
-            gsap.to(video, {
-              opacity: 1,
-              duration: CONFIG.loopFadeIn,
-              ease: "power1.out",
-              overwrite: true,
-            });
-
             restarting = false;
           },
+        );
+      });
+    }
+
+    function preloadStoryPlayer(video, assetId) {
+      const url = manifest[assetId];
+
+      return loadVideo(video, url).then(function (ready) {
+        if (!ready || video.dataset.src !== url) return false;
+
+        video.pause();
+        video.loop = false;
+
+        const segment = segmentFor(assetId, video.duration);
+
+        return seekStoryFrame(video, segment.in).then(function () {
+          return video.dataset.src === url;
         });
       });
     }
@@ -897,18 +963,28 @@ function initNumenosMedia() {
       stopLoop();
 
       const assetId = STORY_STEPS[step].transition;
-      const ready = await loadVideo(idle, manifest[assetId]);
+      const assetUrl = manifest[assetId];
+      const ready = await loadVideo(idle, assetUrl);
 
-      if (!ready || !isLifecycleValid(id)) return false;
+      if (
+        !ready ||
+        idle.dataset.src !== assetUrl ||
+        !isLifecycleValid(id)
+      )
+        return false;
 
       idle.loop = false;
 
       const segment = segmentFor(assetId, idle.duration);
       await seekStoryFrame(idle, segment.in);
 
-      if (!isLifecycleValid(id)) return false;
+      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
 
       safePlay(idle);
+      await waitForPresentedVideoFrame(idle);
+
+      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
+
       crossfade(idle, visible);
       swap();
 
@@ -926,18 +1002,24 @@ function initNumenosMedia() {
         return isLifecycleValid(id);
       }
 
-      const ready = await loadVideo(idle, manifest[rest.id]);
+      const restUrl = manifest[rest.id];
+      const ready = await loadVideo(idle, restUrl);
 
-      if (!ready || !isLifecycleValid(id)) return false;
+      if (!ready || idle.dataset.src !== restUrl || !isLifecycleValid(id))
+        return false;
 
       idle.loop = false;
 
       const segment = segmentFor(rest.id, idle.duration);
       await seekStoryFrame(idle, segment.in);
 
-      if (!isLifecycleValid(id)) return false;
+      if (idle.dataset.src !== restUrl || !isLifecycleValid(id)) return false;
 
       safePlay(idle);
+      await waitForPresentedVideoFrame(idle);
+
+      if (idle.dataset.src !== restUrl || !isLifecycleValid(id)) return false;
+
       crossfade(idle, visible);
       swap();
       startSegmentLoop(visible, rest.id);
@@ -953,14 +1035,20 @@ function initNumenosMedia() {
       }
 
       const assetId = STORY_STEPS[step].transition;
-      const ready = await loadVideo(idle, manifest[assetId]);
+      const assetUrl = manifest[assetId];
+      const ready = await loadVideo(idle, assetUrl);
 
-      if (!ready || !isLifecycleValid(id)) return false;
+      if (
+        !ready ||
+        idle.dataset.src !== assetUrl ||
+        !isLifecycleValid(id)
+      )
+        return false;
 
       const segment = segmentFor(assetId, idle.duration);
       await seekStoryFrame(idle, Math.max(0, segment.out - 0.03));
 
-      if (!isLifecycleValid(id)) return false;
+      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
 
       stopLoop();
       idle.pause();
@@ -1022,8 +1110,31 @@ function initNumenosMedia() {
     }
 
     function preloadStory() {
-      loadVideo(idle, manifest[STORY_STEPS[1].transition]);
-      loadVideo(visible, manifest[STORY_STEPS[1].rest.id]);
+      const transitionPlayer = idle;
+      const restPlayer = visible;
+      const transitionId = STORY_STEPS[1].transition;
+      const transitionUrl = manifest[transitionId];
+
+      preloadStoryPlayer(
+        transitionPlayer,
+        transitionId,
+      )
+        .then(function (ready) {
+          if (
+            !ready ||
+            current !== 0 ||
+            transitionPlayer.dataset.src !== transitionUrl
+          ) {
+            return;
+          }
+
+          gsap.set(transitionPlayer, { opacity: 1, zIndex: 2 });
+          gsap.set(restPlayer, { opacity: 0, zIndex: 1 });
+        })
+        .catch(function () {});
+      preloadStoryPlayer(restPlayer, STORY_STEPS[1].rest.id).catch(
+        function () {},
+      );
     }
 
     function deactivateStory() {
@@ -1616,12 +1727,37 @@ function initNumenosMedia() {
       resetLayers({ immediate: false, resetVideo: true });
     }
 
+    function handleFocusOut() {
+      requestAnimationFrame(function () {
+        if (!activeLayer) return;
+
+        const activeControl = controls.find(function (control) {
+          return control.getAttribute("data-layer-control") === activeLayer;
+        });
+        const activePanel = panelMap[activeLayer];
+        const focused = document.activeElement;
+
+        if (
+          focused === activeControl ||
+          (activePanel && activePanel.contains(focused))
+        ) {
+          return;
+        }
+
+        resetLayers({ immediate: false, resetVideo: true });
+      });
+    }
+
     controls.forEach(function (control) {
       const key = control.getAttribute("data-layer-control");
       if (!key) return;
       if (hoverQuery.matches) {
         control.addEventListener("pointerenter", function () {
           activateLayer(key);
+        });
+        control.addEventListener("pointerleave", function () {
+          if (activeLayer !== key || control.matches(":focus-visible")) return;
+          resetLayers({ immediate: false, resetVideo: true });
         });
       }
       control.addEventListener("click", function () {
@@ -1635,6 +1771,7 @@ function initNumenosMedia() {
     document.addEventListener("pointerdown", handleOutsidePointerDown, {
       passive: true,
     });
+    cLayers.addEventListener("focusout", handleFocusOut);
 
     map.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
