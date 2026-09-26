@@ -4,6 +4,11 @@ function initNumenosMedia() {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const mobileQuery = window.matchMedia("(max-width: 767px)");
   const hoverQuery = window.matchMedia("(hover: hover) and (pointer: fine)");
+  const useHoverInteractions = hoverQuery.matches && !mobileQuery.matches;
+
+  if (mobileQuery.matches) {
+    ScrollTrigger.config({ ignoreMobileResize: true });
+  }
 
   const userAgent = navigator.userAgent;
   const isIOS =
@@ -73,6 +78,20 @@ function initNumenosMedia() {
     storyRowFadeOutStart: 0.82,
     heroFadeBlur: 4,
     heroFadeHold: 0.22,
+
+    mobile: {
+      playbackBandStart: "top 110%",
+      aboutRevealStart: "top 78%",
+      aboutRevealEnd: "top 38%",
+      insightsRevealStart: "top 78%",
+      insightsRevealEnd: "top 38%",
+      staticRevealStart: "top 60%",
+      staticRevealEnd: "top 15%",
+      mediaRevealScrub: 0.18,
+      viewportFadeScrub: 0.08,
+      storyStepStart: "top 68%",
+      newsRevealDistanceVh: 20,
+    },
   };
 
   const STORY_STEPS = {
@@ -89,6 +108,18 @@ function initNumenosMedia() {
 
   const mediaMap = new Map();
   const activeMedia = new Set();
+  let mobileLayoutObserver = null;
+
+  function responsiveValue(desktopValue, mobileValue) {
+    return mobileQuery.matches ? mobileValue : desktopValue;
+  }
+
+  function getViewportHeight() {
+    if (mobileQuery.matches && window.visualViewport) {
+      return window.visualViewport.height;
+    }
+    return window.innerHeight;
+  }
 
   function getSectionByRole(role) {
     return document.querySelector(`[data-media-role="${role}"]`);
@@ -140,6 +171,7 @@ function initNumenosMedia() {
           revealed: false,
           active: false,
           loopBound: false,
+          nativeLoop: false,
         });
         gsap.set(item, { opacity: 0, scale: 1, zIndex: index + 1 });
         const video = item.querySelector("[data-bg-video]");
@@ -335,7 +367,14 @@ function initNumenosMedia() {
   }
 
   function enableSmoothLoop(media) {
-    if (media.loopBound) return;
+    if (media.loopBound || media.nativeLoop) return;
+
+    if (mobileQuery.matches) {
+      media.nativeLoop = true;
+      media.video.loop = true;
+      return;
+    }
+
     media.loopBound = true;
     media.onEnded = function () {
       if (media.active) restartWithFade(media);
@@ -345,6 +384,11 @@ function initNumenosMedia() {
   }
 
   function disableSmoothLoop(media) {
+    if (media.nativeLoop) {
+      media.nativeLoop = false;
+      media.video.loop = false;
+    }
+
     if (!media.loopBound) return;
     media.loopBound = false;
     media.video.removeEventListener("ended", media.onEnded);
@@ -357,6 +401,16 @@ function initNumenosMedia() {
     activeMedia.add(media);
     enableSmoothLoop(media);
     if (media.video.ended) {
+      if (media.nativeLoop) {
+        try {
+          media.video.currentTime = 0;
+        } catch (error) {}
+        revealAndPlay(
+          media,
+          media.revealed ? CONFIG.loopFadeIn : CONFIG.revealDuration,
+        );
+        return;
+      }
       restartWithFade(media);
       return;
     }
@@ -391,7 +445,13 @@ function initNumenosMedia() {
         trigger,
         start: options.start || CONFIG.mediaRevealStart,
         end: options.end || CONFIG.mediaRevealEnd,
-        scrub: options.scrub != null ? options.scrub : CONFIG.mediaRevealScrub,
+        scrub:
+          options.scrub != null
+            ? options.scrub
+            : responsiveValue(
+                CONFIG.mediaRevealScrub,
+                CONFIG.mobile.mediaRevealScrub,
+              ),
         invalidateOnRefresh: true,
       },
     });
@@ -412,11 +472,12 @@ function initNumenosMedia() {
     );
   }
 
-  function createReducedMotionSwap(section, incoming, outgoing) {
+  function createReducedMotionSwap(section, incoming, outgoing, options) {
     if (!section || !incoming || !outgoing) return;
+    options = options || {};
     ScrollTrigger.create({
       trigger: section,
-      start: "top 50%",
+      start: options.start || "top 50%",
       onEnter: function () {
         gsap.set(outgoing.item, { opacity: 0 });
         gsap.set(incoming.item, { opacity: 1 });
@@ -463,8 +524,14 @@ function initNumenosMedia() {
 
     if (about && aboutMedia && heroMedia) {
       createStackedReveal(about, aboutMedia, heroMedia, {
-        start: CONFIG.aboutRevealStart,
-        end: CONFIG.aboutRevealEnd,
+        start: responsiveValue(
+          CONFIG.aboutRevealStart,
+          CONFIG.mobile.aboutRevealStart,
+        ),
+        end: responsiveValue(
+          CONFIG.aboutRevealEnd,
+          CONFIG.mobile.aboutRevealEnd,
+        ),
       });
     }
 
@@ -476,18 +543,30 @@ function initNumenosMedia() {
         start: aboutTitle ? "bottom top" : CONFIG.mediaRevealStart,
         end: aboutTitle
           ? function () {
-              return `+=${Math.round((window.innerHeight * CONFIG.storyRevealDistanceVh) / 100)}`;
+              return `+=${Math.round((getViewportHeight() * CONFIG.storyRevealDistanceVh) / 100)}`;
             }
           : CONFIG.mediaRevealEnd,
-        scrub: CONFIG.storyRevealScrub,
+        scrub: responsiveValue(
+          CONFIG.storyRevealScrub,
+          CONFIG.mobile.mediaRevealScrub,
+        ),
       });
     }
 
     if (insights && insightsMedia && storyMedia) {
       createStackedReveal(insights, insightsMedia, storyMedia, {
-        start: CONFIG.insightsRevealStart,
-        end: CONFIG.insightsRevealEnd,
-        scrub: CONFIG.insightsRevealScrub,
+        start: responsiveValue(
+          CONFIG.insightsRevealStart,
+          CONFIG.mobile.insightsRevealStart,
+        ),
+        end: responsiveValue(
+          CONFIG.insightsRevealEnd,
+          CONFIG.mobile.insightsRevealEnd,
+        ),
+        scrub: responsiveValue(
+          CONFIG.insightsRevealScrub,
+          CONFIG.mobile.mediaRevealScrub,
+        ),
       });
     }
 
@@ -495,7 +574,10 @@ function initNumenosMedia() {
       createStackedReveal(cLayers, cLayersMedia, insightsMedia, {
         start: CONFIG.cLayersRevealStart,
         end: CONFIG.cLayersRevealEnd,
-        scrub: CONFIG.cLayersRevealScrub,
+        scrub: responsiveValue(
+          CONFIG.cLayersRevealScrub,
+          CONFIG.mobile.mediaRevealScrub,
+        ),
       });
     }
 
@@ -513,13 +595,44 @@ function initNumenosMedia() {
     sections.slice(startIndex + 1).forEach(function (section) {
       const incoming = getSectionMedia(section);
       if (!incoming || getVideoSource(incoming.item)) return;
+
+      let revealTrigger = section;
+      let revealStart = responsiveValue(
+        CONFIG.staticRevealStart,
+        CONFIG.mobile.staticRevealStart,
+      );
+      let revealEnd = responsiveValue(
+        CONFIG.staticRevealEnd,
+        CONFIG.mobile.staticRevealEnd,
+      );
+
+      if (mobileQuery.matches && section.matches(".section_news")) {
+        const teamCards = Array.from(
+          document.querySelectorAll(".section_team .team_card"),
+        );
+        const lastTeamCard = teamCards[teamCards.length - 1];
+
+        if (lastTeamCard) {
+          revealTrigger = lastTeamCard;
+          revealStart = "bottom top";
+          revealEnd = function () {
+            return `+=${Math.round((getViewportHeight() * CONFIG.mobile.newsRevealDistanceVh) / 100)}`;
+          };
+        }
+      }
+
       if (reducedMotion.matches) {
-        createReducedMotionSwap(section, incoming, outgoing);
+        createReducedMotionSwap(revealTrigger, incoming, outgoing, {
+          start: revealStart,
+        });
       } else {
-        createStackedReveal(section, incoming, outgoing, {
-          start: CONFIG.staticRevealStart,
-          end: CONFIG.staticRevealEnd,
-          scrub: CONFIG.staticRevealScrub,
+        createStackedReveal(revealTrigger, incoming, outgoing, {
+          start: revealStart,
+          end: revealEnd,
+          scrub: responsiveValue(
+            CONFIG.staticRevealScrub,
+            CONFIG.mobile.mediaRevealScrub,
+          ),
         });
       }
       outgoing = incoming;
@@ -577,7 +690,10 @@ function initNumenosMedia() {
 
     ScrollTrigger.create({
       trigger: section,
-      start: CONFIG.playbackBandStart,
+      start: responsiveValue(
+        CONFIG.playbackBandStart,
+        CONFIG.mobile.playbackBandStart,
+      ),
       end: CONFIG.playbackBandEnd,
       onEnter: function () {
         prepareMedia(media).then(function () {
@@ -680,6 +796,7 @@ function initNumenosMedia() {
     let loopVideo = null;
     let loopStop = null;
     let loopRunId = 0;
+    let transitionStop = null;
 
     function segmentFor(id, duration) {
       if (!duration || !Number.isFinite(duration)) {
@@ -866,10 +983,19 @@ function initNumenosMedia() {
 
       const sourceUrl = video.dataset.src;
       const runId = loopRunId;
+      loopVideo = video;
+
+      if (mobileQuery.matches && !previewMode) {
+        video.loop = true;
+        safePlay(video);
+        loopStop = function () {
+          if (video.dataset.src === sourceUrl) video.loop = false;
+        };
+        return;
+      }
+
       video.loop = false;
       safePlay(video);
-
-      loopVideo = video;
 
       let restarting = false;
 
@@ -930,29 +1056,49 @@ function initNumenosMedia() {
         let stop = null;
         const seg = segmentFor(id, video.duration);
         const span = seg.out > 0 ? seg.out - seg.in : 8;
-        const watchdog = setTimeout(finish, Math.max(600, span * 1000 + 900));
+        const watchdog = setTimeout(
+          function () {
+            finish(true);
+          },
+          Math.max(600, span * 1000 + 900),
+        );
 
-        function finish() {
+        function finish(completed) {
           if (done) return;
 
           done = true;
           clearTimeout(watchdog);
 
           if (stop) stop();
+          if (transitionStop === cancel) transitionStop = null;
 
-          video.pause();
+          if (completed) {
+            video.pause();
 
-          const settled = segmentFor(id, video.duration);
+            const settled = segmentFor(id, video.duration);
 
-          if (settled.out > 0) {
-            seekVideo(video, Math.max(0, settled.out - 0.03));
+            if (settled.out > 0) {
+              seekVideo(video, Math.max(0, settled.out - 0.03));
+            }
           }
 
-          resolve();
+          resolve(completed);
         }
 
-        stop = watchClipEnd(video, id, finish);
+        function cancel() {
+          finish(false);
+        }
+
+        transitionStop = cancel;
+        stop = watchClipEnd(video, id, function () {
+          finish(true);
+        });
       });
+    }
+
+    function cancelTransition() {
+      if (transitionStop) transitionStop();
+      transitionStop = null;
     }
 
     function isLifecycleValid(id) {
@@ -988,9 +1134,9 @@ function initNumenosMedia() {
       crossfade(idle, visible);
       swap();
 
-      await watchToEnd(visible, assetId);
+      const completed = await watchToEnd(visible, assetId);
 
-      return isLifecycleValid(id);
+      return completed && isLifecycleValid(id);
     }
 
     async function showRest(step, id) {
@@ -1068,7 +1214,7 @@ function initNumenosMedia() {
       try {
         while (isLifecycleValid(id) && current !== desired) {
           if (desired > current) {
-            const nextStep = current + 1;
+            const nextStep = mobileQuery.matches ? desired : current + 1;
             const played = await playTransition(nextStep, id);
 
             if (!played || !isLifecycleValid(id)) return;
@@ -1105,7 +1251,21 @@ function initNumenosMedia() {
     function requestStep(stepNumber) {
       if (!sectionActive) return;
 
-      desired = gsap.utils.clamp(1, 3, stepNumber);
+      const nextDesired = gsap.utils.clamp(1, 3, stepNumber);
+      if (nextDesired === desired) return;
+
+      desired = nextDesired;
+
+      if (mobileQuery.matches && processing) {
+        lifecycleId += 1;
+        processing = false;
+        cancelTransition();
+        stopLoop();
+        gsap.killTweensOf([playerA, playerB]);
+        playerA.pause();
+        playerB.pause();
+      }
+
       processStory();
     }
 
@@ -1144,6 +1304,7 @@ function initNumenosMedia() {
       lifecycleId += 1;
       processing = false;
 
+      cancelTransition();
       stopLoop();
 
       gsap.killTweensOf([playerA, playerB]);
@@ -1153,7 +1314,7 @@ function initNumenosMedia() {
 
     function storyIsInViewport() {
       const rect = section.getBoundingClientRect();
-      return rect.bottom > 0 && rect.top < window.innerHeight;
+      return rect.bottom > 0 && rect.top < getViewportHeight();
     }
 
     function resumeStory() {
@@ -1181,7 +1342,10 @@ function initNumenosMedia() {
 
       ScrollTrigger.create({
         trigger: row,
-        start: CONFIG.storyStepStart,
+        start: responsiveValue(
+          CONFIG.storyStepStart,
+          CONFIG.mobile.storyStepStart,
+        ),
         end: "bottom top",
 
         onEnter: function () {
@@ -1246,7 +1410,13 @@ function initNumenosMedia() {
         trigger,
         start: options.start || "top 90%",
         end: options.end || "bottom 10%",
-        scrub: options.scrub != null ? options.scrub : CONFIG.viewportFadeScrub,
+        scrub:
+          options.scrub != null
+            ? options.scrub
+            : responsiveValue(
+                CONFIG.viewportFadeScrub,
+                CONFIG.mobile.viewportFadeScrub,
+              ),
         invalidateOnRefresh: true,
       },
     });
@@ -1290,7 +1460,10 @@ function initNumenosMedia() {
         trigger: el,
         start: options.enterStart || "top 90%",
         end: options.enterEnd || "top 62%",
-        scrub: CONFIG.viewportFadeScrub,
+        scrub: responsiveValue(
+          CONFIG.viewportFadeScrub,
+          CONFIG.mobile.viewportFadeScrub,
+        ),
         invalidateOnRefresh: true,
       },
     });
@@ -1310,7 +1483,10 @@ function initNumenosMedia() {
           trigger: el,
           start: options.exitStart || "top top",
           end: options.exitEnd || "bottom top",
-          scrub: CONFIG.viewportFadeScrub,
+          scrub: responsiveValue(
+            CONFIG.viewportFadeScrub,
+            CONFIG.mobile.viewportFadeScrub,
+          ),
           invalidateOnRefresh: true,
         },
       },
@@ -1329,7 +1505,7 @@ function initNumenosMedia() {
         trigger: hero,
         start: "top top",
         end: "bottom 35%",
-        scrub: 0.3,
+        scrub: responsiveValue(0.3, CONFIG.mobile.viewportFadeScrub),
         invalidateOnRefresh: true,
       },
     });
@@ -1371,7 +1547,7 @@ function initNumenosMedia() {
         trigger: row,
         start: "top 50%",
         end: "bottom 50%",
-        scrub: 0.3,
+        scrub: responsiveValue(0.3, CONFIG.mobile.viewportFadeScrub),
         invalidateOnRefresh: true,
       },
     });
@@ -1477,8 +1653,8 @@ function initNumenosMedia() {
     createTitleReveal(document.querySelector(".pipeline_title"));
     createTitleReveal(document.querySelector(".team_title"));
     createTitleReveal(document.querySelector(".news_title"), {
-      exitStart: "center top",
-      exitEnd: "bottom -8%",
+      exitStart: responsiveValue("center top", "bottom 5%"),
+      exitEnd: responsiveValue("bottom -8%", "bottom -10%"),
     });
   }
 
@@ -1555,7 +1731,7 @@ function initNumenosMedia() {
       if ("inert" in row) row.inert = !active;
       row.style.pointerEvents = "none";
       const card = row.querySelector(".layers_card");
-      if (card) card.style.pointerEvents = active ? "auto" : "none";
+      if (card) card.style.pointerEvents = "none";
     }
 
     function hidePanel(row, immediate) {
@@ -1722,12 +1898,14 @@ function initNumenosMedia() {
     }
 
     function handleOutsidePointerDown(event) {
-      if (hoverQuery.matches || !activeLayer) return;
+      if (useHoverInteractions || !activeLayer) return;
       if (event.target.closest("[data-layer-control]")) return;
       resetLayers({ immediate: false, resetVideo: true });
     }
 
     function handleFocusOut() {
+      if (!useHoverInteractions) return;
+
       requestAnimationFrame(function () {
         if (!activeLayer) return;
 
@@ -1751,7 +1929,7 @@ function initNumenosMedia() {
     controls.forEach(function (control) {
       const key = control.getAttribute("data-layer-control");
       if (!key) return;
-      if (hoverQuery.matches) {
+      if (useHoverInteractions) {
         control.addEventListener("pointerenter", function () {
           activateLayer(key);
         });
@@ -1851,6 +2029,66 @@ function initNumenosMedia() {
     });
   }
 
+  function initMobileLayoutStability() {
+    if (!mobileQuery.matches) return;
+
+    const sections = [
+      document.querySelector(".section_team"),
+      document.querySelector(".section_news"),
+    ].filter(Boolean);
+
+    if (!sections.length) return;
+
+    let refreshQueued = false;
+
+    function scheduleLayoutRefresh() {
+      if (refreshQueued) return;
+      refreshQueued = true;
+
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          refreshQueued = false;
+          ScrollTrigger.sort();
+          ScrollTrigger.refresh();
+        });
+      });
+    }
+
+    if (typeof ResizeObserver === "function") {
+      const heights = new WeakMap();
+      mobileLayoutObserver = new ResizeObserver(function (entries) {
+        let layoutChanged = false;
+
+        entries.forEach(function (entry) {
+          const nextHeight = entry.contentRect.height;
+          const previousHeight = heights.get(entry.target);
+          heights.set(entry.target, nextHeight);
+
+          if (
+            previousHeight != null &&
+            Math.abs(nextHeight - previousHeight) > 1
+          ) {
+            layoutChanged = true;
+          }
+        });
+
+        if (layoutChanged) scheduleLayoutRefresh();
+      });
+
+      sections.forEach(function (section) {
+        mobileLayoutObserver.observe(section);
+      });
+    }
+
+    document
+      .querySelectorAll(".section_team img, .section_news img")
+      .forEach(function (image) {
+        if (image.complete) return;
+        image.addEventListener("load", scheduleLayoutRefresh, { once: true });
+        image.addEventListener("error", scheduleLayoutRefresh, { once: true });
+      });
+  }
+
   function refresh() {
     requestAnimationFrame(function () {
       ScrollTrigger.sort();
@@ -1883,6 +2121,7 @@ function initNumenosMedia() {
   } catch (error) {}
 
   initVisibilityHandling(handles);
+  initMobileLayoutStability();
   refresh();
 
   if (document.fonts && document.fonts.ready) {
