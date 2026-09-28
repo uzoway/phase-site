@@ -734,11 +734,11 @@ function initNumenosMedia() {
     );
     const playerA = media.item.querySelector('[data-story-player="a"]');
     const playerB = media.item.querySelector('[data-story-player="b"]');
-    const fallbackImages = Array.from(media.item.children).filter(function (
-      child,
-    ) {
-      return child.classList.contains("bg-images_img");
-    });
+    const fallbackImages = Array.from(media.item.children).filter(
+      function (child) {
+        return child.classList.contains("bg-images_img");
+      },
+    );
     const rows = Array.from(section.querySelectorAll("[data-story-step]"));
     if (!manifestRoot || !playerA || !playerB || rows.length !== 3) return null;
 
@@ -1112,11 +1112,7 @@ function initNumenosMedia() {
       const assetUrl = manifest[assetId];
       const ready = await loadVideo(idle, assetUrl);
 
-      if (
-        !ready ||
-        idle.dataset.src !== assetUrl ||
-        !isLifecycleValid(id)
-      )
+      if (!ready || idle.dataset.src !== assetUrl || !isLifecycleValid(id))
         return false;
 
       idle.loop = false;
@@ -1184,11 +1180,7 @@ function initNumenosMedia() {
       const assetUrl = manifest[assetId];
       const ready = await loadVideo(idle, assetUrl);
 
-      if (
-        !ready ||
-        idle.dataset.src !== assetUrl ||
-        !isLifecycleValid(id)
-      )
+      if (!ready || idle.dataset.src !== assetUrl || !isLifecycleValid(id))
         return false;
 
       const segment = segmentFor(assetId, idle.duration);
@@ -1275,10 +1267,7 @@ function initNumenosMedia() {
       const transitionId = STORY_STEPS[1].transition;
       const transitionUrl = manifest[transitionId];
 
-      preloadStoryPlayer(
-        transitionPlayer,
-        transitionId,
-      )
+      preloadStoryPlayer(transitionPlayer, transitionId)
         .then(function (ready) {
           if (
             !ready ||
@@ -2139,3 +2128,5 @@ function initNumenosMedia() {
 }
 
 document.addEventListener("DOMContentLoaded", initNumenosMedia);
+
+console.log("is it working?");
