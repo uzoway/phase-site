@@ -57,6 +57,11 @@ function initNumenosMedia() {
     cLayersCloseViewportRatio: 1.7,
     cLayersToTeamRevealStart: "bottom bottom",
     cLayersToTeamRevealEnd: "bottom 65%",
+    cLayersTargets: {
+      infrastructure: 0.3125,
+      memory: 0.581,
+      application: 0.875,
+    },
     cLayersTargetTolerance: 0.015,
     cLayersPanelInDuration: 0.42,
     cLayersPanelOutDuration: 0.22,
@@ -73,6 +78,7 @@ function initNumenosMedia() {
 
     storyStepStart: "top 60%",
     storyCrossfade: 0.35,
+    storyReverseFps: 24,
     storyIntroGapVh: 40,
     storyFinalTailVh: 117,
 
@@ -729,51 +735,90 @@ function initNumenosMedia() {
     });
   }
 
-  function createLoopingPlayback(role, activate) {
+  function createLoopingPlayback(role, activate, options) {
     const section = getSectionByRole(role);
     const media = getSectionMedia(section);
     if (!section || !media || !media.video || reducedMotion.matches)
       return null;
+    options = options || {};
+
+    let activationId = 0;
+    let shouldBeActive = false;
+
+    function holdAtStart(keepVisible) {
+      activationId += 1;
+      deactivateMedia(media);
+      disableSmoothLoop(media);
+      media.video.loop = false;
+      try {
+        media.video.currentTime = 0;
+      } catch (error) {}
+      if (!keepVisible) {
+        media.revealed = false;
+        gsap.set(media.video, { opacity: 0 });
+      }
+    }
+
+    function activatePlayback() {
+      shouldBeActive = true;
+      const requestId = ++activationId;
+      prepareMedia(media).then(function (ready) {
+        if (!ready || requestId !== activationId) return;
+        if (options.restartOnActivate) {
+          disableSmoothLoop(media);
+          media.video.pause();
+          media.video.loop = false;
+          try {
+            media.video.currentTime = 0;
+          } catch (error) {}
+          media.revealed = false;
+          gsap.set(media.video, { opacity: 0 });
+        }
+        activate(media);
+      });
+    }
 
     ScrollTrigger.create({
       trigger: section,
       start: CONFIG.playbackPrepareStart,
       once: true,
       onEnter: function () {
-        prepareMedia(media);
+        prepareMedia(media).then(function (ready) {
+          if (ready && options.holdAtStart && !shouldBeActive) {
+            holdAtStart(false);
+          }
+        });
       },
     });
 
     ScrollTrigger.create({
       trigger: section,
-      start: responsiveValue(
-        CONFIG.playbackBandStart,
-        CONFIG.mobile.playbackBandStart,
-      ),
+      start:
+        options.start ||
+        responsiveValue(
+          CONFIG.playbackBandStart,
+          CONFIG.mobile.playbackBandStart,
+        ),
       end: CONFIG.playbackBandEnd,
-      onEnter: function () {
-        prepareMedia(media).then(function () {
-          activate(media);
-        });
-      },
-      onEnterBack: function () {
-        activate(media);
-      },
+      onEnter: activatePlayback,
+      onEnterBack: activatePlayback,
       onLeave: function () {
-        deactivateMedia(media);
+        shouldBeActive = false;
+        if (options.resetOnDeactivate) holdAtStart(true);
+        else deactivateMedia(media);
       },
       onLeaveBack: function () {
-        deactivateMedia(media);
+        shouldBeActive = false;
+        if (options.resetOnDeactivate) holdAtStart(true);
+        else deactivateMedia(media);
       },
     });
 
     return {
-      activate: function () {
-        prepareMedia(media).then(function () {
-          activate(media);
-        });
-      },
+      activate: activatePlayback,
       release: function () {
+        shouldBeActive = false;
+        activationId += 1;
         deactivateMedia(media);
         releaseMedia(media);
       },
@@ -1152,6 +1197,81 @@ function initNumenosMedia() {
       });
     }
 
+    function playReverseToStart(video, assetId, id) {
+      return new Promise(function (resolve) {
+        const segment = segmentFor(assetId, video.duration);
+        const startTime = Math.max(
+          segment.in,
+          Math.min(video.currentTime, segment.out - 0.03),
+        );
+        const frameInterval = 1000 / CONFIG.storyReverseFps;
+        const startedAt = performance.now();
+        let lastSeekAt = 0;
+        let rafId = null;
+        let settled = false;
+        const watchdogId = setTimeout(
+          function () {
+            finish(true);
+          },
+          Math.max(900, (startTime - segment.in) * 1000 + 1600),
+        );
+
+        function cleanup() {
+          clearTimeout(watchdogId);
+          if (rafId !== null) cancelAnimationFrame(rafId);
+          if (transitionStop === cancel) transitionStop = null;
+        }
+
+        function finish(completed) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          video.pause();
+
+          if (!completed) {
+            resolve(false);
+            return;
+          }
+
+          seekStoryFrame(video, segment.in).then(function () {
+            resolve(isLifecycleValid(id));
+          });
+        }
+
+        function cancel() {
+          finish(false);
+        }
+
+        function frame(now) {
+          if (!isLifecycleValid(id)) {
+            cancel();
+            return;
+          }
+
+          const nextTime = Math.max(
+            segment.in,
+            startTime - (now - startedAt) / 1000,
+          );
+
+          if (now - lastSeekAt >= frameInterval || nextTime <= segment.in) {
+            lastSeekAt = now;
+            seekVideo(video, nextTime);
+          }
+
+          if (nextTime <= segment.in + 0.01) {
+            finish(true);
+            return;
+          }
+
+          rafId = requestAnimationFrame(frame);
+        }
+
+        transitionStop = cancel;
+        video.pause();
+        rafId = requestAnimationFrame(frame);
+      });
+    }
+
     function cancelTransition() {
       if (transitionStop) transitionStop();
       transitionStop = null;
@@ -1189,6 +1309,31 @@ function initNumenosMedia() {
       const completed = await watchToEnd(visible, assetId);
 
       return completed && isLifecycleValid(id);
+    }
+
+    async function playReverseTransition(step, id) {
+      stopLoop();
+
+      const assetId = STORY_STEPS[step].transition;
+      const assetUrl = manifest[assetId];
+      const ready = await loadVideo(idle, assetUrl);
+
+      if (!ready || idle.dataset.src !== assetUrl || !isLifecycleValid(id))
+        return false;
+
+      idle.pause();
+      idle.loop = false;
+
+      const segment = segmentFor(assetId, idle.duration);
+      await seekStoryFrame(idle, Math.max(segment.in, segment.out - 0.03));
+      await waitForPresentedVideoFrame(idle);
+
+      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
+
+      crossfade(idle, visible);
+      swap();
+
+      return playReverseToStart(visible, assetId, id);
     }
 
     async function showRest(step, id) {
@@ -1278,12 +1423,18 @@ function initNumenosMedia() {
             continue;
           }
 
-          const targetStep = desired;
-          const restored = await restoreStableStep(targetStep, id);
+          const previousStep = Math.max(1, current - 1);
+          const reversed = await playReverseTransition(current, id);
 
-          if (!restored || !isLifecycleValid(id)) return;
+          if (!reversed || !isLifecycleValid(id)) return;
 
-          current = targetStep;
+          current = previousStep;
+
+          if (current === desired) {
+            const rested = await showRest(current, id);
+
+            if (!rested || !isLifecycleValid(id)) return;
+          }
         }
       } finally {
         if (id === lifecycleId) {
@@ -1704,22 +1855,9 @@ function initNumenosMedia() {
       enterEnd: "top 70%",
     });
 
-    const teamCards = Array.from(
-      document.querySelectorAll(".section_team .team_card"),
-    );
-    const lastTeamCard = teamCards[teamCards.length - 1];
     createTitleReveal(document.querySelector(".news_title"), {
-      enterTrigger: lastTeamCard || undefined,
-      enterStart: lastTeamCard ? "bottom top" : "top 90%",
-      enterEnd: lastTeamCard
-        ? function () {
-            const distance = responsiveValue(
-              CONFIG.staticRevealDistanceVh,
-              CONFIG.mobile.newsRevealDistanceVh,
-            );
-            return `+=${Math.round((getViewportHeight() * distance) / 100)}`;
-          }
-        : "top 62%",
+      enterStart: responsiveValue("top 98%", "top 94%"),
+      enterEnd: responsiveValue("top 78%", "top 74%"),
       exitStart: responsiveValue("center top", "bottom 5%"),
       exitEnd: responsiveValue("bottom -8%", "bottom -10%"),
     });
@@ -1736,6 +1874,11 @@ function initNumenosMedia() {
       if (!ready) return false;
       return waitForVideoBuffer(video, options).then(function () {
         video.pause();
+        if (options.hidePosters) {
+          gsap.set(media.item.querySelectorAll(".bg-images_img"), {
+            autoAlpha: 0,
+          });
+        }
         media.revealed = true;
         gsap.to(video, {
           opacity: options.revealOpacity != null ? options.revealOpacity : 1,
@@ -1924,6 +2067,12 @@ function initNumenosMedia() {
       return Math.max(0, video.duration - 0.034);
     }
 
+    function getCLayersTargetTime(progress) {
+      const duration = getCLayersSafeDuration();
+      if (!duration) return 0;
+      return duration * gsap.utils.clamp(0, 1, progress);
+    }
+
     function getCLayersOpenTime() {
       return Math.min(CONFIG.cLayersOpenTime, getCLayersSafeDuration());
     }
@@ -2028,6 +2177,7 @@ function initNumenosMedia() {
       cLayersReadyPromise = preparePlaybackVideo(
         cLayersMedia,
         Object.assign({}, CONFIG.cLayersBuffer, {
+          hidePosters: true,
           revealOpacity: CONFIG.cLayersIntroOpacity,
         }),
       ).then(function (ready) {
@@ -2055,6 +2205,12 @@ function initNumenosMedia() {
           opacity: options.opacity != null ? options.opacity : 1,
         });
         return seekCLayersFrame(video, resolvedTarget, actionId);
+      });
+    }
+
+    function snapCLayersVideo(progress) {
+      return snapCLayersToTime(function () {
+        return getCLayersTargetTime(progress);
       });
     }
 
@@ -2183,9 +2339,10 @@ function initNumenosMedia() {
       );
     }
 
-    function activateLayer(key) {
+    async function activateLayer(key) {
       if (!interactiveReady) return;
-      if (!key || !panelMap[key]) return;
+      if (!key || !panelMap[key] || CONFIG.cLayersTargets[key] === undefined)
+        return;
       if (activeLayer === key) return;
       const previousLayer = activeLayer;
       activeLayer = key;
@@ -2193,7 +2350,8 @@ function initNumenosMedia() {
         hidePanel(panelMap[previousLayer]);
       updateControls(key);
       hidePanel(panelMap[key], true);
-      if (!interactiveReady || activeLayer !== key) return;
+      const frameReady = await snapCLayersVideo(CONFIG.cLayersTargets[key]);
+      if (!frameReady || !interactiveReady || activeLayer !== key) return;
       showPanel(panelMap[key]);
     }
 
@@ -2204,6 +2362,9 @@ function initNumenosMedia() {
       Object.values(panelMap).forEach(function (row) {
         hidePanel(row, options.immediate === true);
       });
+      if (options.resetVideo && layerPhase === "interactive") {
+        snapCLayersToTime(getCLayersOpenTime);
+      }
     }
 
     function isInInteractiveRange() {
@@ -2309,7 +2470,7 @@ function initNumenosMedia() {
       hideLayerMap(true);
       resetLayers({ immediate: true });
       const phaseId = ++layerPhaseId;
-      snapCLayersToTime(getCLayersOpenTime).then(function (opened) {
+      playCLayersOpening().then(function (opened) {
         finishInteractivePhase(opened, phaseId);
       });
     }
@@ -2357,7 +2518,7 @@ function initNumenosMedia() {
     function handleOutsidePointerDown(event) {
       if (!interactiveReady || useHoverInteractions || !activeLayer) return;
       if (event.target.closest("[data-layer-control]")) return;
-      resetLayers({ immediate: false });
+      resetLayers({ immediate: false, resetVideo: true });
     }
 
     function handleFocusOut() {
@@ -2379,7 +2540,7 @@ function initNumenosMedia() {
           return;
         }
 
-        resetLayers({ immediate: false });
+        resetLayers({ immediate: false, resetVideo: true });
       });
     }
 
@@ -2392,7 +2553,7 @@ function initNumenosMedia() {
         });
         control.addEventListener("pointerleave", function () {
           if (activeLayer !== key || control.matches(":focus-visible")) return;
-          resetLayers({ immediate: false });
+          resetLayers({ immediate: false, resetVideo: true });
         });
       }
       control.addEventListener("click", function () {
@@ -2411,7 +2572,7 @@ function initNumenosMedia() {
     map.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
       if (!interactiveReady) return;
-      resetLayers({ immediate: false });
+      resetLayers({ immediate: false, resetVideo: true });
       if (
         document.activeElement &&
         typeof document.activeElement.blur === "function"
@@ -2622,7 +2783,12 @@ function initNumenosMedia() {
   try {
     initHero();
     handles.about = createLoopingPlayback("about", activateFadeLoop);
-    handles.insights = createLoopingPlayback("insights", activateFadeLoop);
+    handles.insights = createLoopingPlayback("insights", activateFadeLoop, {
+      start: "top top",
+      holdAtStart: true,
+      restartOnActivate: true,
+      resetOnDeactivate: true,
+    });
   } catch (error) {}
   try {
     handles.story = initStory(handles);
