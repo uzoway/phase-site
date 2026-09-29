@@ -43,22 +43,20 @@ function initNumenosMedia() {
     insightsRevealEnd: "top 55%",
     insightsRevealScrub: 0.6,
 
-    cLayersRevealStart: "top 45%",
-    cLayersRevealEnd: "top top",
+    cLayersRevealDistanceVh: 45,
     cLayersRevealScrub: 0.8,
     cLayersPrepareStart: "top 300%",
     cLayersIntroOpacity: 0.4,
+    cLayersIntroTrackVh: 180,
+    cLayersIntroLeadVh: 125,
+    cLayersInteractionTrackVh: 250,
     cLayersOpenTime: 2,
+    cLayersCloseStartTime: 12.5,
     cLayersOpenFadeDuration: 0.45,
     cLayersMapFadeDuration: 0.45,
-    cLayersMapFadeOutStart: "bottom 15%",
-    cLayersToTeamRevealStart: "top 15%",
-    cLayersToTeamRevealEnd: "top top",
-    cLayersTargets: {
-      infrastructure: 0.3125,
-      memory: 0.581,
-      application: 0.875,
-    },
+    cLayersCloseViewportRatio: 1.7,
+    cLayersToTeamRevealStart: "bottom bottom",
+    cLayersToTeamRevealEnd: "bottom 65%",
     cLayersTargetTolerance: 0.015,
     cLayersPanelInDuration: 0.42,
     cLayersPanelOutDuration: 0.22,
@@ -70,6 +68,7 @@ function initNumenosMedia() {
 
     staticRevealStart: "top 75%",
     staticRevealEnd: "top 25%",
+    staticRevealDistanceVh: 18,
     staticRevealScrub: 0.55,
 
     storyStepStart: "top 60%",
@@ -100,6 +99,8 @@ function initNumenosMedia() {
       viewportFadeScrub: 0.08,
       storyStepStart: "top 68%",
       cLayersRevealDistanceVh: 12,
+      cLayersInteractionTrackVh: 180,
+      cLayersCloseViewportRatio: 1.6,
       newsRevealDistanceVh: 10,
       footerRevealDistanceVh: 10,
     },
@@ -119,7 +120,7 @@ function initNumenosMedia() {
 
   const mediaMap = new Map();
   const activeMedia = new Set();
-  let mobileLayoutObserver = null;
+  let layoutObserver = null;
 
   function responsiveValue(desktopValue, mobileValue) {
     return mobileQuery.matches ? mobileValue : desktopValue;
@@ -587,18 +588,21 @@ function initNumenosMedia() {
       const insightsContent = insights
         ? insights.querySelector("[data-insights-content]")
         : null;
-      const useContentBoundary = mobileQuery.matches && insightsContent;
       createStackedReveal(
-        useContentBoundary ? insightsContent : cLayers,
+        insightsContent || cLayers,
         cLayersMedia,
         insightsMedia,
         {
-          start: useContentBoundary ? "bottom top" : CONFIG.cLayersRevealStart,
-          end: useContentBoundary
+          start: insightsContent ? "bottom top" : CONFIG.mediaRevealStart,
+          end: insightsContent
             ? function () {
-                return `+=${Math.round((getViewportHeight() * CONFIG.mobile.cLayersRevealDistanceVh) / 100)}`;
+                const distance = responsiveValue(
+                  CONFIG.cLayersRevealDistanceVh,
+                  CONFIG.mobile.cLayersRevealDistanceVh,
+                );
+                return `+=${Math.round((getViewportHeight() * distance) / 100)}`;
               }
-            : CONFIG.cLayersRevealEnd,
+            : CONFIG.mediaRevealEnd,
           scrub: responsiveValue(
             CONFIG.cLayersRevealScrub,
             CONFIG.mobile.mediaRevealScrub,
@@ -633,36 +637,43 @@ function initNumenosMedia() {
       );
 
       if (section.matches(".section_team")) {
+        revealTrigger = cLayers;
         revealStart = CONFIG.cLayersToTeamRevealStart;
         revealEnd = CONFIG.cLayersToTeamRevealEnd;
-      } else if (mobileQuery.matches) {
-        if (section.matches(".section_news")) {
-          const teamCards = Array.from(
-            document.querySelectorAll(".section_team .team_card"),
-          );
-          const lastTeamCard = teamCards[teamCards.length - 1];
+      } else if (section.matches(".section_news")) {
+        const teamCards = Array.from(
+          document.querySelectorAll(".section_team .team_card"),
+        );
+        const lastTeamCard = teamCards[teamCards.length - 1];
 
-          if (lastTeamCard) {
-            revealTrigger = lastTeamCard;
-            revealStart = "bottom top";
-            revealEnd = function () {
-              return `+=${Math.round((getViewportHeight() * CONFIG.mobile.newsRevealDistanceVh) / 100)}`;
-            };
-          }
-        } else if (section.matches(".c-footer")) {
-          const newsExit =
-            document.querySelector(".section_news .w-pagination-next") ||
-            Array.from(
-              document.querySelectorAll(".section_news .news_card"),
-            ).pop();
+        if (lastTeamCard) {
+          revealTrigger = lastTeamCard;
+          revealStart = "bottom top";
+          revealEnd = function () {
+            const distance = responsiveValue(
+              CONFIG.staticRevealDistanceVh,
+              CONFIG.mobile.newsRevealDistanceVh,
+            );
+            return `+=${Math.round((getViewportHeight() * distance) / 100)}`;
+          };
+        }
+      } else if (section.matches(".c-footer")) {
+        const newsExit =
+          document.querySelector(".section_news .w-pagination-next") ||
+          Array.from(
+            document.querySelectorAll(".section_news .news_card"),
+          ).pop();
 
-          if (newsExit) {
-            revealTrigger = newsExit;
-            revealStart = "bottom top";
-            revealEnd = function () {
-              return `+=${Math.round((getViewportHeight() * CONFIG.mobile.footerRevealDistanceVh) / 100)}`;
-            };
-          }
+        if (newsExit) {
+          revealTrigger = newsExit;
+          revealStart = "bottom top";
+          revealEnd = function () {
+            const distance = responsiveValue(
+              CONFIG.staticRevealDistanceVh,
+              CONFIG.mobile.footerRevealDistanceVh,
+            );
+            return `+=${Math.round((getViewportHeight() * distance) / 100)}`;
+          };
         }
       }
 
@@ -1490,7 +1501,7 @@ function initNumenosMedia() {
       filter: "blur(0px)",
       ease: "none",
       scrollTrigger: {
-        trigger: el,
+        trigger: options.enterTrigger || el,
         start: options.enterStart || "top 90%",
         end: options.enterEnd || "top 62%",
         scrub: responsiveValue(
@@ -1689,12 +1700,26 @@ function initNumenosMedia() {
 
     createTitleReveal(document.querySelector(".pipeline_title"));
     createTitleReveal(document.querySelector(".team_title"), {
-      enterStart: "top 22%",
-      enterEnd: "top 12%",
+      enterStart: "top 90%",
+      enterEnd: "top 70%",
     });
+
+    const teamCards = Array.from(
+      document.querySelectorAll(".section_team .team_card"),
+    );
+    const lastTeamCard = teamCards[teamCards.length - 1];
     createTitleReveal(document.querySelector(".news_title"), {
-      enterStart: responsiveValue("top 90%", "top 25%"),
-      enterEnd: responsiveValue("top 62%", "top 13%"),
+      enterTrigger: lastTeamCard || undefined,
+      enterStart: lastTeamCard ? "bottom top" : "top 90%",
+      enterEnd: lastTeamCard
+        ? function () {
+            const distance = responsiveValue(
+              CONFIG.staticRevealDistanceVh,
+              CONFIG.mobile.newsRevealDistanceVh,
+            );
+            return `+=${Math.round((getViewportHeight() * distance) / 100)}`;
+          }
+        : "top 62%",
       exitStart: responsiveValue("center top", "bottom 5%"),
       exitEnd: responsiveValue("bottom -8%", "bottom -10%"),
     });
@@ -1731,6 +1756,7 @@ function initNumenosMedia() {
     if (!cLayers || !cLayersMedia) return;
 
     const map = cLayers.querySelector("[data-layer-map]");
+    const introTrack = cLayers.querySelector("[data-c-layers-intro]");
     const introCopy = cLayers.querySelector("[data-c-layers-intro-copy]");
     const interactionTrack = cLayers.querySelector(
       "[data-c-layers-interaction]",
@@ -1743,6 +1769,7 @@ function initNumenosMedia() {
     if (reducedMotion.matches) return;
     if (
       !map ||
+      !introTrack ||
       !introCopy ||
       !interactionTrack ||
       controls.length !== 3 ||
@@ -1752,6 +1779,16 @@ function initNumenosMedia() {
         "C-layers requires intro/interaction hooks, [data-layer-map], three controls and three [data-layer-row] panels.",
       );
       return;
+    }
+
+    if (mobileQuery.matches) {
+      interactionTrack.style.minHeight = `${CONFIG.mobile.cLayersInteractionTrackVh}svh`;
+    } else {
+      introTrack.style.boxSizing = "border-box";
+      introTrack.style.alignItems = "flex-start";
+      introTrack.style.minHeight = `${CONFIG.cLayersIntroTrackVh}svh`;
+      introTrack.style.paddingTop = `${CONFIG.cLayersIntroLeadVh}svh`;
+      interactionTrack.style.minHeight = `${CONFIG.cLayersInteractionTrackVh}svh`;
     }
 
     const panelMap = {
@@ -1768,6 +1805,8 @@ function initNumenosMedia() {
       if (!row.id) row.id = `layer-panel-${key}`;
       row.setAttribute("aria-hidden", "true");
       if ("inert" in row) row.inert = true;
+      row.style.position = "fixed";
+      row.style.inset = "0";
       gsap.set(row, { autoAlpha: 0 });
     });
 
@@ -1787,7 +1826,7 @@ function initNumenosMedia() {
     let activeLayer = null;
     let videoActionId = 0;
     let cLayersReadyPromise = null;
-    let cancelOpeningPlayback = null;
+    let cancelSegmentPlayback = null;
     let layerPhase = "intro";
     let interactiveReady = false;
     let layerPhaseId = 0;
@@ -1885,24 +1924,29 @@ function initNumenosMedia() {
       return Math.max(0, video.duration - 0.034);
     }
 
-    function getCLayersTargetTime(progress) {
-      const duration = getCLayersSafeDuration();
-      if (!duration) return 0;
-      return duration * gsap.utils.clamp(0, 1, progress);
-    }
-
     function getCLayersOpenTime() {
       return Math.min(CONFIG.cLayersOpenTime, getCLayersSafeDuration());
     }
 
-    function stopOpeningPlayback() {
-      if (cancelOpeningPlayback) cancelOpeningPlayback();
-      cancelOpeningPlayback = null;
+    function getCLayersCloseStartTime() {
+      return Math.min(
+        CONFIG.cLayersCloseStartTime,
+        getCLayersSafeDuration(),
+      );
+    }
+
+    function getCLayersCloseEndTime() {
+      return getCLayersSafeDuration();
+    }
+
+    function stopSegmentPlayback() {
+      if (cancelSegmentPlayback) cancelSegmentPlayback();
+      cancelSegmentPlayback = null;
     }
 
     function beginVideoAction() {
       videoActionId += 1;
-      stopOpeningPlayback();
+      stopSegmentPlayback();
       return videoActionId;
     }
 
@@ -2014,13 +2058,8 @@ function initNumenosMedia() {
       });
     }
 
-    function snapCLayersVideo(progress) {
-      return snapCLayersToTime(function () {
-        return getCLayersTargetTime(progress);
-      });
-    }
-
-    function playCLayersOpening() {
+    function playCLayersSegment(startTime, targetTime, options) {
+      options = options || {};
       const actionId = beginVideoAction();
 
       return prepareCLayersVideo().then(async function (ready) {
@@ -2028,13 +2067,23 @@ function initNumenosMedia() {
         const video = cLayersMedia.video;
         if (!video) return false;
 
-        const atStart = await seekCLayersFrame(video, 0, actionId);
+        const resolvedStart =
+          typeof startTime === "function" ? startTime() : startTime;
+        const resolvedTarget =
+          typeof targetTime === "function" ? targetTime() : targetTime;
+        const atStart = await seekCLayersFrame(
+          video,
+          resolvedStart,
+          actionId,
+        );
         if (!atStart || actionId !== videoActionId) return false;
 
-        const targetTime = getCLayersOpenTime();
         gsap.to(video, {
-          opacity: 1,
-          duration: CONFIG.cLayersOpenFadeDuration,
+          opacity: options.opacity != null ? options.opacity : 1,
+          duration:
+            options.fadeDuration != null
+              ? options.fadeDuration
+              : CONFIG.cLayersOpenFadeDuration,
           ease: "power2.out",
           overwrite: true,
         });
@@ -2043,7 +2092,10 @@ function initNumenosMedia() {
           let settled = false;
           let frameCallbackId = null;
           let rafId = null;
-          const watchdogId = setTimeout(finish, 4500);
+          const watchdogId = setTimeout(
+            finish,
+            Math.max(4500, (resolvedTarget - resolvedStart + 2) * 1000),
+          );
 
           function cleanup() {
             clearTimeout(watchdogId);
@@ -2058,8 +2110,8 @@ function initNumenosMedia() {
                 video.cancelVideoFrameCallback(frameCallbackId);
               } catch (error) {}
             }
-            if (cancelOpeningPlayback === cancel) {
-              cancelOpeningPlayback = null;
+            if (cancelSegmentPlayback === cancel) {
+              cancelSegmentPlayback = null;
             }
           }
 
@@ -2072,7 +2124,7 @@ function initNumenosMedia() {
               resolve(false);
               return;
             }
-            seekCLayersFrame(video, targetTime, actionId).then(resolve);
+            seekCLayersFrame(video, resolvedTarget, actionId).then(resolve);
           }
 
           function cancel() {
@@ -2088,7 +2140,7 @@ function initNumenosMedia() {
               cancel();
               return;
             }
-            if (video.currentTime >= targetTime - 0.025 || video.ended) {
+            if (video.currentTime >= resolvedTarget - 0.025 || video.ended) {
               finish();
             }
           }
@@ -2103,7 +2155,7 @@ function initNumenosMedia() {
             }
           }
 
-          cancelOpeningPlayback = cancel;
+          cancelSegmentPlayback = cancel;
           video.addEventListener("timeupdate", check);
           video.addEventListener("ended", finish);
           const playPromise = video.play();
@@ -2113,10 +2165,27 @@ function initNumenosMedia() {
       });
     }
 
-    async function activateLayer(key) {
+    function playCLayersOpening() {
+      return playCLayersSegment(0, getCLayersOpenTime, {
+        opacity: 1,
+        fadeDuration: CONFIG.cLayersOpenFadeDuration,
+      });
+    }
+
+    function playCLayersClosing() {
+      return playCLayersSegment(
+        getCLayersCloseStartTime,
+        getCLayersCloseEndTime,
+        {
+          opacity: 1,
+          fadeDuration: 0,
+        },
+      );
+    }
+
+    function activateLayer(key) {
       if (!interactiveReady) return;
-      if (!key || !panelMap[key] || CONFIG.cLayersTargets[key] === undefined)
-        return;
+      if (!key || !panelMap[key]) return;
       if (activeLayer === key) return;
       const previousLayer = activeLayer;
       activeLayer = key;
@@ -2124,8 +2193,7 @@ function initNumenosMedia() {
         hidePanel(panelMap[previousLayer]);
       updateControls(key);
       hidePanel(panelMap[key], true);
-      const frameReady = await snapCLayersVideo(CONFIG.cLayersTargets[key]);
-      if (!frameReady || !interactiveReady || activeLayer !== key) return;
+      if (!interactiveReady || activeLayer !== key) return;
       showPanel(panelMap[key]);
     }
 
@@ -2136,17 +2204,20 @@ function initNumenosMedia() {
       Object.values(panelMap).forEach(function (row) {
         hidePanel(row, options.immediate === true);
       });
-      if (options.resetVideo !== false) {
-        snapCLayersToTime(getCLayersOpenTime);
-      }
     }
 
     function isInInteractiveRange() {
       const sectionRect = cLayers.getBoundingClientRect();
+      const closeBoundary =
+        getViewportHeight() *
+        responsiveValue(
+          CONFIG.cLayersCloseViewportRatio,
+          CONFIG.mobile.cLayersCloseViewportRatio,
+        );
       return (
         introCopy.getBoundingClientRect().bottom <= 2 &&
         sectionRect.top < getViewportHeight() &&
-        sectionRect.bottom > getViewportHeight() * 0.15
+        sectionRect.bottom > closeBoundary
       );
     }
 
@@ -2188,7 +2259,7 @@ function initNumenosMedia() {
       layerPhase = "intro";
       setControlsEnabled(false);
       hideLayerMap(options.immediate === true);
-      resetLayers({ immediate: true, resetVideo: false });
+      resetLayers({ immediate: true });
       if (options.seek !== false) {
         snapCLayersToTime(0, { opacity: CONFIG.cLayersIntroOpacity });
       }
@@ -2196,8 +2267,9 @@ function initNumenosMedia() {
 
     function finishInteractivePhase(opened, phaseId) {
       if (phaseId !== layerPhaseId) return;
-      if (!opened || layerPhase !== "opening" || !isInInteractiveRange()) {
-        leaveInteractivePhase();
+      if (!opened || layerPhase !== "opening") return;
+      if (!isInInteractiveRange()) {
+        startClosingPhase();
         return;
       }
       layerPhase = "interactive";
@@ -2211,7 +2283,7 @@ function initNumenosMedia() {
       layerPhase = "opening";
       setControlsEnabled(false);
       hideLayerMap();
-      resetLayers({ immediate: true, resetVideo: false });
+      resetLayers({ immediate: true });
       const phaseId = ++layerPhaseId;
       playCLayersOpening().then(function (opened) {
         finishInteractivePhase(opened, phaseId);
@@ -2224,7 +2296,7 @@ function initNumenosMedia() {
         return;
       }
       if (!isInInteractiveRange()) {
-        leaveInteractivePhase();
+        startClosingPhase();
         return;
       }
       if (layerPhase === "interactive" && interactiveReady) {
@@ -2235,28 +2307,57 @@ function initNumenosMedia() {
       layerPhase = "opening";
       setControlsEnabled(false);
       hideLayerMap(true);
-      resetLayers({ immediate: true, resetVideo: false });
+      resetLayers({ immediate: true });
       const phaseId = ++layerPhaseId;
       snapCLayersToTime(getCLayersOpenTime).then(function (opened) {
         finishInteractivePhase(opened, phaseId);
       });
     }
 
-    function leaveInteractivePhase() {
-      if (layerPhase === "exited") return;
+    function startClosingPhase() {
+      if (
+        layerPhase === "closing" ||
+        layerPhase === "closed" ||
+        layerPhase === "exited"
+      ) {
+        return;
+      }
+
+      if (layerPhase === "intro") {
+        forceExitedPhase({ immediate: true });
+        return;
+      }
+
+      const phaseId = ++layerPhaseId;
+      layerPhase = "closing";
+      setControlsEnabled(false);
+      resetLayers({ immediate: false });
+
+      playCLayersClosing().then(function (closed) {
+        if (phaseId !== layerPhaseId) return;
+        if (!closed) {
+          forceExitedPhase({ immediate: true });
+          return;
+        }
+        layerPhase = "closed";
+        hideLayerMap(false);
+      });
+    }
+
+    function forceExitedPhase(options) {
+      options = options || {};
       layerPhaseId += 1;
       layerPhase = "exited";
       setControlsEnabled(false);
-      hideLayerMap();
-      resetLayers({ immediate: true, resetVideo: false });
-      beginVideoAction();
-      if (cLayersMedia.video) cLayersMedia.video.pause();
+      hideLayerMap(options.immediate !== false);
+      resetLayers({ immediate: true });
+      snapCLayersToTime(getCLayersCloseEndTime, { opacity: 1 });
     }
 
     function handleOutsidePointerDown(event) {
       if (!interactiveReady || useHoverInteractions || !activeLayer) return;
       if (event.target.closest("[data-layer-control]")) return;
-      resetLayers({ immediate: false, resetVideo: true });
+      resetLayers({ immediate: false });
     }
 
     function handleFocusOut() {
@@ -2278,7 +2379,7 @@ function initNumenosMedia() {
           return;
         }
 
-        resetLayers({ immediate: false, resetVideo: true });
+        resetLayers({ immediate: false });
       });
     }
 
@@ -2291,7 +2392,7 @@ function initNumenosMedia() {
         });
         control.addEventListener("pointerleave", function () {
           if (activeLayer !== key || control.matches(":focus-visible")) return;
-          resetLayers({ immediate: false, resetVideo: true });
+          resetLayers({ immediate: false });
         });
       }
       control.addEventListener("click", function () {
@@ -2310,7 +2411,7 @@ function initNumenosMedia() {
     map.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
       if (!interactiveReady) return;
-      resetLayers({ immediate: false, resetVideo: true });
+      resetLayers({ immediate: false });
       if (
         document.activeElement &&
         typeof document.activeElement.blur === "function"
@@ -2352,9 +2453,24 @@ function initNumenosMedia() {
 
     ScrollTrigger.create({
       trigger: cLayers,
-      start: CONFIG.cLayersMapFadeOutStart,
-      onEnter: leaveInteractivePhase,
+      start: function () {
+        const ratio = responsiveValue(
+          CONFIG.cLayersCloseViewportRatio,
+          CONFIG.mobile.cLayersCloseViewportRatio,
+        );
+        return `bottom ${ratio * 100}%`;
+      },
+      onEnter: startClosingPhase,
       onLeaveBack: restoreInteractivePhase,
+      invalidateOnRefresh: true,
+    });
+
+    ScrollTrigger.create({
+      trigger: cLayers,
+      start: "bottom 110%",
+      onEnter: function () {
+        forceExitedPhase({ immediate: true });
+      },
       invalidateOnRefresh: true,
     });
 
@@ -2369,7 +2485,9 @@ function initNumenosMedia() {
       onEnterBack: function () {
         prepareCLayersVideo();
       },
-      onLeave: leaveInteractivePhase,
+      onLeave: function () {
+        forceExitedPhase({ immediate: true });
+      },
       onLeaveBack: function () {
         enterIntroPhase();
         if (handles.insights) handles.insights.activate();
@@ -2379,14 +2497,20 @@ function initNumenosMedia() {
     requestAnimationFrame(function () {
       const sectionRect = cLayers.getBoundingClientRect();
       const introHasPassed = introCopy.getBoundingClientRect().bottom <= 2;
-      const beforeFadeOut = sectionRect.bottom > getViewportHeight() * 0.15;
+      const beforeClose =
+        sectionRect.bottom >
+        getViewportHeight() *
+          responsiveValue(
+            CONFIG.cLayersCloseViewportRatio,
+            CONFIG.mobile.cLayersCloseViewportRatio,
+          );
 
       if (sectionRect.top >= getViewportHeight()) {
         enterIntroPhase({ immediate: true, seek: false });
-      } else if (introHasPassed && beforeFadeOut) {
+      } else if (introHasPassed && beforeClose) {
         restoreInteractivePhase();
-      } else if (!beforeFadeOut) {
-        leaveInteractivePhase();
+      } else if (!beforeClose) {
+        forceExitedPhase({ immediate: true });
       } else {
         enterIntroPhase({ immediate: true });
       }
@@ -2409,8 +2533,14 @@ function initNumenosMedia() {
     });
   }
 
-  function initMobileLayoutStability() {
-    if (!mobileQuery.matches) return;
+  function initLayoutStability() {
+    document
+      .querySelectorAll(".section_team .team_card-image-wrap")
+      .forEach(function (wrapper) {
+        if (getComputedStyle(wrapper).aspectRatio === "auto") {
+          wrapper.style.aspectRatio = "3 / 4";
+        }
+      });
 
     const sections = [
       document.querySelector(".section_team"),
@@ -2436,7 +2566,7 @@ function initNumenosMedia() {
 
     if (typeof ResizeObserver === "function") {
       const heights = new WeakMap();
-      mobileLayoutObserver = new ResizeObserver(function (entries) {
+      layoutObserver = new ResizeObserver(function (entries) {
         let layoutChanged = false;
 
         entries.forEach(function (entry) {
@@ -2456,7 +2586,7 @@ function initNumenosMedia() {
       });
 
       sections.forEach(function (section) {
-        mobileLayoutObserver.observe(section);
+        layoutObserver.observe(section);
       });
     }
 
@@ -2477,6 +2607,7 @@ function initNumenosMedia() {
   }
 
   buildMediaMap();
+  initLayoutStability();
 
   const handles = {};
 
@@ -2501,7 +2632,6 @@ function initNumenosMedia() {
   } catch (error) {}
 
   initVisibilityHandling(handles);
-  initMobileLayoutStability();
   refresh();
 
   if (document.fonts && document.fonts.ready) {
