@@ -47,8 +47,13 @@ function initNumenosMedia() {
     cLayersRevealEnd: "top top",
     cLayersRevealScrub: 0.8,
     cLayersPrepareStart: "top 300%",
+    cLayersIntroOpacity: 0.4,
+    cLayersOpenTime: 2,
+    cLayersOpenFadeDuration: 0.45,
     cLayersMapFadeDuration: 0.45,
-    cLayersMapFadeOutStart: "bottom 75%",
+    cLayersMapFadeOutStart: "bottom 15%",
+    cLayersToTeamRevealStart: "top 15%",
+    cLayersToTeamRevealEnd: "top top",
     cLayersTargets: {
       infrastructure: 0.3125,
       memory: 0.581,
@@ -57,7 +62,11 @@ function initNumenosMedia() {
     cLayersTargetTolerance: 0.015,
     cLayersPanelInDuration: 0.42,
     cLayersPanelOutDuration: 0.22,
-    cLayersBuffer: { bufferFraction: 0.9, bufferSeconds: 8, maxWaitMs: 12000 },
+    cLayersBuffer: {
+      bufferFraction: 0,
+      bufferSeconds: 2.5,
+      maxWaitMs: 5000,
+    },
 
     staticRevealStart: "top 75%",
     staticRevealEnd: "top 25%",
@@ -90,7 +99,9 @@ function initNumenosMedia() {
       mediaRevealScrub: 0.18,
       viewportFadeScrub: 0.08,
       storyStepStart: "top 68%",
-      newsRevealDistanceVh: 20,
+      cLayersRevealDistanceVh: 12,
+      newsRevealDistanceVh: 10,
+      footerRevealDistanceVh: 10,
     },
   };
 
@@ -452,6 +463,8 @@ function initNumenosMedia() {
                 CONFIG.mediaRevealScrub,
                 CONFIG.mobile.mediaRevealScrub,
               ),
+        fastScrollEnd: 1800,
+        preventOverlaps: "numenos-media-reveal",
         invalidateOnRefresh: true,
       },
     });
@@ -571,14 +584,27 @@ function initNumenosMedia() {
     }
 
     if (cLayers && cLayersMedia && insightsMedia) {
-      createStackedReveal(cLayers, cLayersMedia, insightsMedia, {
-        start: CONFIG.cLayersRevealStart,
-        end: CONFIG.cLayersRevealEnd,
-        scrub: responsiveValue(
-          CONFIG.cLayersRevealScrub,
-          CONFIG.mobile.mediaRevealScrub,
-        ),
-      });
+      const insightsContent = insights
+        ? insights.querySelector("[data-insights-content]")
+        : null;
+      const useContentBoundary = mobileQuery.matches && insightsContent;
+      createStackedReveal(
+        useContentBoundary ? insightsContent : cLayers,
+        cLayersMedia,
+        insightsMedia,
+        {
+          start: useContentBoundary ? "bottom top" : CONFIG.cLayersRevealStart,
+          end: useContentBoundary
+            ? function () {
+                return `+=${Math.round((getViewportHeight() * CONFIG.mobile.cLayersRevealDistanceVh) / 100)}`;
+              }
+            : CONFIG.cLayersRevealEnd,
+          scrub: responsiveValue(
+            CONFIG.cLayersRevealScrub,
+            CONFIG.mobile.mediaRevealScrub,
+          ),
+        },
+      );
     }
 
     initStaticReveals(cLayersMedia);
@@ -606,18 +632,37 @@ function initNumenosMedia() {
         CONFIG.mobile.staticRevealEnd,
       );
 
-      if (mobileQuery.matches && section.matches(".section_news")) {
-        const teamCards = Array.from(
-          document.querySelectorAll(".section_team .team_card"),
-        );
-        const lastTeamCard = teamCards[teamCards.length - 1];
+      if (section.matches(".section_team")) {
+        revealStart = CONFIG.cLayersToTeamRevealStart;
+        revealEnd = CONFIG.cLayersToTeamRevealEnd;
+      } else if (mobileQuery.matches) {
+        if (section.matches(".section_news")) {
+          const teamCards = Array.from(
+            document.querySelectorAll(".section_team .team_card"),
+          );
+          const lastTeamCard = teamCards[teamCards.length - 1];
 
-        if (lastTeamCard) {
-          revealTrigger = lastTeamCard;
-          revealStart = "bottom top";
-          revealEnd = function () {
-            return `+=${Math.round((getViewportHeight() * CONFIG.mobile.newsRevealDistanceVh) / 100)}`;
-          };
+          if (lastTeamCard) {
+            revealTrigger = lastTeamCard;
+            revealStart = "bottom top";
+            revealEnd = function () {
+              return `+=${Math.round((getViewportHeight() * CONFIG.mobile.newsRevealDistanceVh) / 100)}`;
+            };
+          }
+        } else if (section.matches(".c-footer")) {
+          const newsExit =
+            document.querySelector(".section_news .w-pagination-next") ||
+            Array.from(
+              document.querySelectorAll(".section_news .news_card"),
+            ).pop();
+
+          if (newsExit) {
+            revealTrigger = newsExit;
+            revealStart = "bottom top";
+            revealEnd = function () {
+              return `+=${Math.round((getViewportHeight() * CONFIG.mobile.footerRevealDistanceVh) / 100)}`;
+            };
+          }
         }
       }
 
@@ -1241,12 +1286,11 @@ function initNumenosMedia() {
     }
 
     function requestStep(stepNumber) {
-      if (!sectionActive) return;
-
       const nextDesired = gsap.utils.clamp(1, 3, stepNumber);
       if (nextDesired === desired) return;
 
       desired = nextDesired;
+      if (!sectionActive) return;
 
       if (mobileQuery.matches && processing) {
         lifecycleId += 1;
@@ -1276,9 +1320,7 @@ function initNumenosMedia() {
           ) {
             return;
           }
-
-          gsap.set(transitionPlayer, { opacity: 1, zIndex: 2 });
-          gsap.set(restPlayer, { opacity: 0, zIndex: 1 });
+          transitionPlayer.pause();
         })
         .catch(function () {});
       preloadStoryPlayer(restPlayer, STORY_STEPS[1].rest.id).catch(
@@ -1364,6 +1406,7 @@ function initNumenosMedia() {
       onEnter: function () {
         sectionActive = true;
         lifecycleId += 1;
+        if (desired < 1) desired = 1;
         processStory();
       },
 
@@ -1406,6 +1449,7 @@ function initNumenosMedia() {
                 CONFIG.viewportFadeScrub,
                 CONFIG.mobile.viewportFadeScrub,
               ),
+        fastScrollEnd: 1800,
         invalidateOnRefresh: true,
       },
     });
@@ -1453,6 +1497,7 @@ function initNumenosMedia() {
           CONFIG.viewportFadeScrub,
           CONFIG.mobile.viewportFadeScrub,
         ),
+        fastScrollEnd: 1800,
         invalidateOnRefresh: true,
       },
     });
@@ -1476,6 +1521,7 @@ function initNumenosMedia() {
             CONFIG.viewportFadeScrub,
             CONFIG.mobile.viewportFadeScrub,
           ),
+          fastScrollEnd: 1800,
           invalidateOnRefresh: true,
         },
       },
@@ -1495,6 +1541,7 @@ function initNumenosMedia() {
         start: "top top",
         end: "bottom 35%",
         scrub: responsiveValue(0.3, CONFIG.mobile.viewportFadeScrub),
+        fastScrollEnd: 1800,
         invalidateOnRefresh: true,
       },
     });
@@ -1537,6 +1584,7 @@ function initNumenosMedia() {
         start: "top 50%",
         end: "bottom 50%",
         scrub: responsiveValue(0.3, CONFIG.mobile.viewportFadeScrub),
+        fastScrollEnd: 1800,
         invalidateOnRefresh: true,
       },
     });
@@ -1640,8 +1688,13 @@ function initNumenosMedia() {
     }
 
     createTitleReveal(document.querySelector(".pipeline_title"));
-    createTitleReveal(document.querySelector(".team_title"));
+    createTitleReveal(document.querySelector(".team_title"), {
+      enterStart: "top 22%",
+      enterEnd: "top 12%",
+    });
     createTitleReveal(document.querySelector(".news_title"), {
+      enterStart: responsiveValue("top 90%", "top 25%"),
+      enterEnd: responsiveValue("top 62%", "top 13%"),
       exitStart: responsiveValue("center top", "bottom 5%"),
       exitEnd: responsiveValue("bottom -8%", "bottom -10%"),
     });
@@ -1650,14 +1703,21 @@ function initNumenosMedia() {
   function preparePlaybackVideo(media, options) {
     if (!media || !media.video || reducedMotion.matches)
       return Promise.resolve(false);
+    options = options || {};
     const video = media.video;
     configureVideo(video);
     video.loop = false;
     return prepareMedia(media).then(function (ready) {
       if (!ready) return false;
-      return waitForVideoBuffer(video, options || {}).then(function () {
+      return waitForVideoBuffer(video, options).then(function () {
         video.pause();
-        revealVideo(media, 0.35);
+        media.revealed = true;
+        gsap.to(video, {
+          opacity: options.revealOpacity != null ? options.revealOpacity : 1,
+          duration: 0.35,
+          ease: "power2.out",
+          overwrite: true,
+        });
         return true;
       });
     });
@@ -1671,15 +1731,25 @@ function initNumenosMedia() {
     if (!cLayers || !cLayersMedia) return;
 
     const map = cLayers.querySelector("[data-layer-map]");
+    const introCopy = cLayers.querySelector("[data-c-layers-intro-copy]");
+    const interactionTrack = cLayers.querySelector(
+      "[data-c-layers-interaction]",
+    );
     const controls = map
       ? Array.from(map.querySelectorAll("[data-layer-control]"))
       : [];
     const rows = Array.from(cLayers.querySelectorAll("[data-layer-row]"));
 
     if (reducedMotion.matches) return;
-    if (!map || controls.length !== 3 || rows.length !== 3) {
+    if (
+      !map ||
+      !introCopy ||
+      !interactionTrack ||
+      controls.length !== 3 ||
+      rows.length !== 3
+    ) {
       console.warn(
-        "C-layers requires [data-layer-map], three controls and three [data-layer-row] panels.",
+        "C-layers requires intro/interaction hooks, [data-layer-map], three controls and three [data-layer-row] panels.",
       );
       return;
     }
@@ -1706,13 +1776,21 @@ function initNumenosMedia() {
       const row = panelMap[key];
       if (row) control.setAttribute("aria-controls", row.id);
       control.setAttribute("aria-pressed", "false");
+      control.disabled = true;
+      control.setAttribute("aria-disabled", "true");
     });
 
     gsap.set(map, { autoAlpha: 0 });
+    map.setAttribute("aria-hidden", "true");
+    gsap.set(cLayersMedia.video, { opacity: CONFIG.cLayersIntroOpacity });
 
     let activeLayer = null;
     let videoActionId = 0;
     let cLayersReadyPromise = null;
+    let cancelOpeningPlayback = null;
+    let layerPhase = "intro";
+    let interactiveReady = false;
+    let layerPhaseId = 0;
 
     function setPanelAccessibility(row, active) {
       if (!row) return;
@@ -1792,6 +1870,14 @@ function initNumenosMedia() {
       });
     }
 
+    function setControlsEnabled(enabled) {
+      interactiveReady = enabled;
+      controls.forEach(function (control) {
+        control.disabled = !enabled;
+        control.setAttribute("aria-disabled", enabled ? "false" : "true");
+      });
+    }
+
     function getCLayersSafeDuration() {
       const video = cLayersMedia.video;
       if (!video || !video.duration || !Number.isFinite(video.duration))
@@ -1805,11 +1891,101 @@ function initNumenosMedia() {
       return duration * gsap.utils.clamp(0, 1, progress);
     }
 
+    function getCLayersOpenTime() {
+      return Math.min(CONFIG.cLayersOpenTime, getCLayersSafeDuration());
+    }
+
+    function stopOpeningPlayback() {
+      if (cancelOpeningPlayback) cancelOpeningPlayback();
+      cancelOpeningPlayback = null;
+    }
+
+    function beginVideoAction() {
+      videoActionId += 1;
+      stopOpeningPlayback();
+      return videoActionId;
+    }
+
+    function waitForCLayersFrame(video, actionId) {
+      return new Promise(function (resolve) {
+        if (!video || actionId !== videoActionId) {
+          resolve(false);
+          return;
+        }
+
+        let settled = false;
+        let frameCallbackId = null;
+        const timeoutId = setTimeout(finish, isWebKit ? 600 : 350);
+
+        function finish() {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          if (
+            frameCallbackId !== null &&
+            typeof video.cancelVideoFrameCallback === "function"
+          ) {
+            try {
+              video.cancelVideoFrameCallback(frameCallbackId);
+            } catch (error) {}
+          }
+          resolve(actionId === videoActionId);
+        }
+
+        if (typeof video.requestVideoFrameCallback === "function") {
+          frameCallbackId = video.requestVideoFrameCallback(finish);
+          return;
+        }
+
+        requestAnimationFrame(function () {
+          requestAnimationFrame(finish);
+        });
+      });
+    }
+
+    function seekCLayersFrame(video, targetTime, actionId) {
+      if (!video || actionId !== videoActionId) return Promise.resolve(false);
+
+      const target = gsap.utils.clamp(0, getCLayersSafeDuration(), targetTime);
+
+      video.pause();
+      video.loop = false;
+      video.playbackRate = 1;
+
+      if (
+        Math.abs(video.currentTime - target) <= CONFIG.cLayersTargetTolerance
+      ) {
+        return Promise.resolve(true);
+      }
+
+      return new Promise(function (resolve) {
+        let settled = false;
+        const timeoutId = setTimeout(finish, isWebKit ? 700 : 450);
+
+        function finish() {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          video.removeEventListener("seeked", finish);
+          waitForCLayersFrame(video, actionId).then(resolve);
+        }
+
+        video.addEventListener("seeked", finish, { once: true });
+        try {
+          video.currentTime = target;
+        } catch (error) {
+          finish();
+        }
+      });
+    }
+
     function prepareCLayersVideo() {
       if (cLayersReadyPromise) return cLayersReadyPromise;
       cLayersReadyPromise = preparePlaybackVideo(
         cLayersMedia,
-        CONFIG.cLayersBuffer,
+        Object.assign({}, CONFIG.cLayersBuffer, {
+          revealOpacity: CONFIG.cLayersIntroOpacity,
+        }),
       ).then(function (ready) {
         if (!ready || !cLayersMedia.video) return false;
         const video = cLayersMedia.video;
@@ -1821,30 +1997,124 @@ function initNumenosMedia() {
       return cLayersReadyPromise;
     }
 
-    function snapCLayersVideo(progress) {
-      const actionId = ++videoActionId;
-      prepareCLayersVideo().then(function (ready) {
-        if (!ready || actionId !== videoActionId) return;
+    function snapCLayersToTime(targetTime, options) {
+      options = options || {};
+      const actionId = beginVideoAction();
+      return prepareCLayersVideo().then(function (ready) {
+        if (!ready || actionId !== videoActionId) return false;
         const video = cLayersMedia.video;
-        if (!video) return;
-        const targetTime = getCLayersTargetTime(progress);
-        video.pause();
-        video.loop = false;
-        video.playbackRate = 1;
+        if (!video) return false;
+        const resolvedTarget =
+          typeof targetTime === "function" ? targetTime() : targetTime;
         gsap.killTweensOf(video);
-        gsap.set(video, { opacity: 1 });
-        if (
-          Math.abs(video.currentTime - targetTime) <=
-          CONFIG.cLayersTargetTolerance
-        )
-          return;
-        try {
-          video.currentTime = targetTime;
-        } catch (error) {}
+        gsap.set(video, {
+          opacity: options.opacity != null ? options.opacity : 1,
+        });
+        return seekCLayersFrame(video, resolvedTarget, actionId);
       });
     }
 
-    function activateLayer(key) {
+    function snapCLayersVideo(progress) {
+      return snapCLayersToTime(function () {
+        return getCLayersTargetTime(progress);
+      });
+    }
+
+    function playCLayersOpening() {
+      const actionId = beginVideoAction();
+
+      return prepareCLayersVideo().then(async function (ready) {
+        if (!ready || actionId !== videoActionId) return false;
+        const video = cLayersMedia.video;
+        if (!video) return false;
+
+        const atStart = await seekCLayersFrame(video, 0, actionId);
+        if (!atStart || actionId !== videoActionId) return false;
+
+        const targetTime = getCLayersOpenTime();
+        gsap.to(video, {
+          opacity: 1,
+          duration: CONFIG.cLayersOpenFadeDuration,
+          ease: "power2.out",
+          overwrite: true,
+        });
+
+        return new Promise(function (resolve) {
+          let settled = false;
+          let frameCallbackId = null;
+          let rafId = null;
+          const watchdogId = setTimeout(finish, 4500);
+
+          function cleanup() {
+            clearTimeout(watchdogId);
+            video.removeEventListener("timeupdate", check);
+            video.removeEventListener("ended", finish);
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            if (
+              frameCallbackId !== null &&
+              typeof video.cancelVideoFrameCallback === "function"
+            ) {
+              try {
+                video.cancelVideoFrameCallback(frameCallbackId);
+              } catch (error) {}
+            }
+            if (cancelOpeningPlayback === cancel) {
+              cancelOpeningPlayback = null;
+            }
+          }
+
+          function finish() {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            video.pause();
+            if (actionId !== videoActionId) {
+              resolve(false);
+              return;
+            }
+            seekCLayersFrame(video, targetTime, actionId).then(resolve);
+          }
+
+          function cancel() {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            video.pause();
+            resolve(false);
+          }
+
+          function check() {
+            if (actionId !== videoActionId) {
+              cancel();
+              return;
+            }
+            if (video.currentTime >= targetTime - 0.025 || video.ended) {
+              finish();
+            }
+          }
+
+          function watchFrame() {
+            check();
+            if (settled) return;
+            if (typeof video.requestVideoFrameCallback === "function") {
+              frameCallbackId = video.requestVideoFrameCallback(watchFrame);
+            } else {
+              rafId = requestAnimationFrame(watchFrame);
+            }
+          }
+
+          cancelOpeningPlayback = cancel;
+          video.addEventListener("timeupdate", check);
+          video.addEventListener("ended", finish);
+          const playPromise = video.play();
+          if (playPromise !== undefined) playPromise.catch(finish);
+          watchFrame();
+        });
+      });
+    }
+
+    async function activateLayer(key) {
+      if (!interactiveReady) return;
       if (!key || !panelMap[key] || CONFIG.cLayersTargets[key] === undefined)
         return;
       if (activeLayer === key) return;
@@ -1853,22 +2123,42 @@ function initNumenosMedia() {
       if (previousLayer && panelMap[previousLayer])
         hidePanel(panelMap[previousLayer]);
       updateControls(key);
+      hidePanel(panelMap[key], true);
+      const frameReady = await snapCLayersVideo(CONFIG.cLayersTargets[key]);
+      if (!frameReady || !interactiveReady || activeLayer !== key) return;
       showPanel(panelMap[key]);
-      snapCLayersVideo(CONFIG.cLayersTargets[key]);
     }
 
     function resetLayers(options) {
       options = options || {};
-      if (!activeLayer) return;
       activeLayer = null;
       updateControls(null);
       Object.values(panelMap).forEach(function (row) {
         hidePanel(row, options.immediate === true);
       });
-      if (options.resetVideo !== false) snapCLayersVideo(0);
+      if (options.resetVideo !== false) {
+        snapCLayersToTime(getCLayersOpenTime);
+      }
+    }
+
+    function isInInteractiveRange() {
+      const sectionRect = cLayers.getBoundingClientRect();
+      return (
+        introCopy.getBoundingClientRect().bottom <= 2 &&
+        sectionRect.top < getViewportHeight() &&
+        sectionRect.bottom > getViewportHeight() * 0.15
+      );
     }
 
     function showLayerMap() {
+      if (
+        !interactiveReady ||
+        layerPhase !== "interactive" ||
+        !isInInteractiveRange()
+      ) {
+        return;
+      }
+      map.setAttribute("aria-hidden", "false");
       gsap.to(map, {
         autoAlpha: 1,
         duration: CONFIG.cLayersMapFadeDuration,
@@ -1877,7 +2167,13 @@ function initNumenosMedia() {
       });
     }
 
-    function hideLayerMap() {
+    function hideLayerMap(immediate) {
+      map.setAttribute("aria-hidden", "true");
+      if (immediate) {
+        gsap.killTweensOf(map);
+        gsap.set(map, { autoAlpha: 0 });
+        return;
+      }
       gsap.to(map, {
         autoAlpha: 0,
         duration: CONFIG.cLayersMapFadeDuration,
@@ -1886,8 +2182,79 @@ function initNumenosMedia() {
       });
     }
 
+    function enterIntroPhase(options) {
+      options = options || {};
+      layerPhaseId += 1;
+      layerPhase = "intro";
+      setControlsEnabled(false);
+      hideLayerMap(options.immediate === true);
+      resetLayers({ immediate: true, resetVideo: false });
+      if (options.seek !== false) {
+        snapCLayersToTime(0, { opacity: CONFIG.cLayersIntroOpacity });
+      }
+    }
+
+    function finishInteractivePhase(opened, phaseId) {
+      if (phaseId !== layerPhaseId) return;
+      if (!opened || layerPhase !== "opening" || !isInInteractiveRange()) {
+        leaveInteractivePhase();
+        return;
+      }
+      layerPhase = "interactive";
+      setControlsEnabled(true);
+      showLayerMap();
+    }
+
+    function startOpeningPhase() {
+      if (!isInInteractiveRange()) return;
+      if (layerPhase === "opening" || layerPhase === "interactive") return;
+      layerPhase = "opening";
+      setControlsEnabled(false);
+      hideLayerMap();
+      resetLayers({ immediate: true, resetVideo: false });
+      const phaseId = ++layerPhaseId;
+      playCLayersOpening().then(function (opened) {
+        finishInteractivePhase(opened, phaseId);
+      });
+    }
+
+    function restoreInteractivePhase() {
+      if (introCopy.getBoundingClientRect().bottom > 0) {
+        enterIntroPhase();
+        return;
+      }
+      if (!isInInteractiveRange()) {
+        leaveInteractivePhase();
+        return;
+      }
+      if (layerPhase === "interactive" && interactiveReady) {
+        showLayerMap();
+        return;
+      }
+      if (layerPhase === "opening") return;
+      layerPhase = "opening";
+      setControlsEnabled(false);
+      hideLayerMap(true);
+      resetLayers({ immediate: true, resetVideo: false });
+      const phaseId = ++layerPhaseId;
+      snapCLayersToTime(getCLayersOpenTime).then(function (opened) {
+        finishInteractivePhase(opened, phaseId);
+      });
+    }
+
+    function leaveInteractivePhase() {
+      if (layerPhase === "exited") return;
+      layerPhaseId += 1;
+      layerPhase = "exited";
+      setControlsEnabled(false);
+      hideLayerMap();
+      resetLayers({ immediate: true, resetVideo: false });
+      beginVideoAction();
+      if (cLayersMedia.video) cLayersMedia.video.pause();
+    }
+
     function handleOutsidePointerDown(event) {
-      if (useHoverInteractions || !activeLayer) return;
+      if (!interactiveReady || useHoverInteractions || !activeLayer) return;
       if (event.target.closest("[data-layer-control]")) return;
       resetLayers({ immediate: false, resetVideo: true });
     }
@@ -1942,6 +2309,7 @@ function initNumenosMedia() {
 
     map.addEventListener("keydown", function (event) {
       if (event.key !== "Escape") return;
+      if (!interactiveReady) return;
       resetLayers({ immediate: false, resetVideo: true });
       if (
         document.activeElement &&
@@ -1954,6 +2322,7 @@ function initNumenosMedia() {
       hidePanel(row, true);
     });
     updateControls(null);
+    setControlsEnabled(false);
 
     if (insights) {
       ScrollTrigger.create({
@@ -1974,13 +2343,19 @@ function initNumenosMedia() {
     });
 
     ScrollTrigger.create({
+      trigger: introCopy,
+      start: "bottom 1px",
+      onEnter: startOpeningPhase,
+      onLeaveBack: enterIntroPhase,
+      invalidateOnRefresh: true,
+    });
+
+    ScrollTrigger.create({
       trigger: cLayers,
-      start: CONFIG.cLayersRevealEnd,
-      end: CONFIG.cLayersMapFadeOutStart,
-      onEnter: showLayerMap,
-      onEnterBack: showLayerMap,
-      onLeave: hideLayerMap,
-      onLeaveBack: hideLayerMap,
+      start: CONFIG.cLayersMapFadeOutStart,
+      onEnter: leaveInteractivePhase,
+      onLeaveBack: restoreInteractivePhase,
+      invalidateOnRefresh: true,
     });
 
     ScrollTrigger.create({
@@ -1994,11 +2369,27 @@ function initNumenosMedia() {
       onEnterBack: function () {
         prepareCLayersVideo();
       },
+      onLeave: leaveInteractivePhase,
       onLeaveBack: function () {
-        hideLayerMap();
-        if (activeLayer) resetLayers({ immediate: true, resetVideo: true });
+        enterIntroPhase();
         if (handles.insights) handles.insights.activate();
       },
+    });
+
+    requestAnimationFrame(function () {
+      const sectionRect = cLayers.getBoundingClientRect();
+      const introHasPassed = introCopy.getBoundingClientRect().bottom <= 2;
+      const beforeFadeOut = sectionRect.bottom > getViewportHeight() * 0.15;
+
+      if (sectionRect.top >= getViewportHeight()) {
+        enterIntroPhase({ immediate: true, seek: false });
+      } else if (introHasPassed && beforeFadeOut) {
+        restoreInteractivePhase();
+      } else if (!beforeFadeOut) {
+        leaveInteractivePhase();
+      } else {
+        enterIntroPhase({ immediate: true });
+      }
     });
   }
 
