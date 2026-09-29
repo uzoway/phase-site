@@ -2129,4 +2129,4 @@ function initNumenosMedia() {
 
 document.addEventListener("DOMContentLoaded", initNumenosMedia);
 
-console.log("is it working?");
+console.log("now working");
