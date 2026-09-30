@@ -19,15 +19,35 @@ function initNumenosMedia() {
     !/Chrome|Chromium|CriOS|Edg|EdgiOS|OPR|FxiOS/i.test(userAgent);
   const isWebKit = isSafari || isIOS;
 
+  // WebKit only paints a paused, never-played video once it has seeked
+  // somewhere other than exactly 0.
+  const FIRST_FRAME_TIME = isWebKit ? 0.001 : 0;
+
   const CONFIG = {
     revealDuration: 0.6,
     loopFadeOut: 0.22,
     loopFadeIn: 0.38,
     bufferMaxWaitMs: 12000,
 
+    // The hero owns the network until it can play smoothly; after that each
+    // section starts loading when it is about one screen away.
+    heroStartBufferSeconds: 1.5,
+    heroStartMaxWaitMs: 2000,
+    heroGateBufferSeconds: 4,
+    heroGateMaxWaitMs: 3500,
+    heroGateScrollRatio: 0.35,
+    prepareStart: "top 200%",
+    // Background downloads run a couple at a time, in the order they were
+    // asked for, so the clip needed next never shares the connection with
+    // three others. Each holds its slot until buffered (or the timeout).
+    prefetchConcurrency: 2,
+    prefetchBufferSeconds: 5,
+    prefetchMaxWaitMs: 8000,
+
     playbackBandStart: "top 85%",
     playbackBandEnd: "bottom 15%",
-    playbackPrepareStart: "top 250%",
+    playbackStartBufferSeconds: 1.5,
+    playbackStartMaxWaitMs: 1500,
 
     mediaRevealStart: "top 50%",
     mediaRevealEnd: "top 5%",
@@ -46,14 +66,19 @@ function initNumenosMedia() {
     cLayersRevealDistanceVh: 45,
     cLayersRevealScrub: 0.8,
     cLayersPrepareStart: "top 300%",
+    // Relative to the Insights section: the rocks video is the heaviest file
+    // on the page and must be buffered before its intro copy scrolls away.
+    cLayersPreloadStart: "top 100%",
     cLayersIntroOpacity: 0.4,
+    cLayersBackground: "#F4F3F2",
     cLayersIntroTrackVh: 180,
     cLayersIntroLeadVh: 125,
-    cLayersInteractionTrackVh: 250,
+    cLayersInteractionTrackVh: 320,
     cLayersOpenTime: 2,
     cLayersCloseStartTime: 12.5,
     cLayersOpenFadeDuration: 0.45,
     cLayersMapFadeDuration: 0.45,
+    cLayersStateFade: 0.32,
     cLayersCloseViewportRatio: 1.7,
     cLayersToTeamRevealStart: "bottom bottom",
     cLayersToTeamRevealEnd: "bottom 65%",
@@ -70,15 +95,24 @@ function initNumenosMedia() {
       bufferSeconds: 2.5,
       maxWaitMs: 5000,
     },
+    freezeFrameMaxSide: 1280,
 
     staticRevealStart: "top 75%",
     staticRevealEnd: "top 25%",
     staticRevealDistanceVh: 18,
     staticRevealScrub: 0.55,
+    // How far into the background wipe the next section's content appears.
+    sectionGapLeadRatio: 0.35,
 
     storyStepStart: "top 60%",
-    storyCrossfade: 0.35,
-    storyReverseFps: 24,
+    storyCrossfade: 0.3,
+    storySwapFade: 0.12,
+    storyCatchUpRate: 2.5,
+    storyReverseFps: 30,
+    // A transition waits (holding the current loop) until its clip is fully
+    // buffered, so it never freezes mid-animation.
+    storyStartBufferMs: 3000,
+    storyStallTimeoutMs: 3000,
     storyIntroGapVh: 40,
     storyFinalTailVh: 117,
 
@@ -105,7 +139,8 @@ function initNumenosMedia() {
       viewportFadeScrub: 0.08,
       storyStepStart: "top 68%",
       cLayersRevealDistanceVh: 12,
-      cLayersInteractionTrackVh: 180,
+      cLayersPreloadStart: "top 150%",
+      cLayersInteractionTrackVh: 260,
       cLayersCloseViewportRatio: 1.6,
       newsRevealDistanceVh: 10,
       footerRevealDistanceVh: 10,
@@ -113,20 +148,24 @@ function initNumenosMedia() {
   };
 
   const STORY_STEPS = {
-    1: {
-      transition: "step-1-transition",
-      rest: { id: "step-1-loop", loop: true },
-    },
-    2: { transition: "step-2-transition", rest: { id: null, loop: false } },
-    3: {
-      transition: "step-3-transition",
-      rest: { id: "step-3-loop", loop: true },
-    },
+    1: { transition: "step-1-transition", rest: "step-1-loop" },
+    2: { transition: "step-2-transition", rest: null },
+    3: { transition: "step-3-transition", rest: "step-3-loop" },
   };
 
   const mediaMap = new Map();
   const activeMedia = new Set();
   let layoutObserver = null;
+
+  let resolveHeroGate = null;
+  const heroGate = new Promise(function (resolve) {
+    resolveHeroGate = resolve;
+  });
+
+  function reportError(scope, error) {
+    if (window.console && console.warn)
+      console.warn(`[numenos] ${scope}`, error);
+  }
 
   function responsiveValue(desktopValue, mobileValue) {
     return mobileQuery.matches ? mobileValue : desktopValue;
@@ -148,11 +187,18 @@ function initNumenosMedia() {
     return mediaMap.get(section.getAttribute("data-section")) || null;
   }
 
-  function getVideoSource(el) {
+  // `variant` reads an alternate URL (e.g. "reverse" -> data-video-desktop-reverse)
+  // for the same platform as the main source, so orientations never mix.
+  function getVideoSource(el, variant) {
     const desktop = el.getAttribute("data-video-desktop");
     const mobile = el.getAttribute("data-video-mobile");
-    if (mobileQuery.matches && mobile) return mobile;
-    return desktop || mobile || "";
+    const useMobile = !!(mobileQuery.matches && mobile) || !desktop;
+    if (!variant) return (useMobile ? mobile : desktop) || "";
+    return (
+      el.getAttribute(
+        `data-video-${useMobile ? "mobile" : "desktop"}-${variant}`,
+      ) || ""
+    );
   }
 
   function configureVideo(video) {
@@ -168,10 +214,117 @@ function initNumenosMedia() {
       video.disablePictureInPicture = true;
   }
 
+  // Resolves true when playback started, false when it was refused (e.g. iOS
+  // Low Power Mode) so callers can fall back to still frames.
   function safePlay(video) {
-    if (!video || reducedMotion.matches || document.hidden) return;
-    const promise = video.play();
-    if (promise !== undefined) promise.catch(function () {});
+    if (!video || reducedMotion.matches || document.hidden)
+      return Promise.resolve(false);
+    let promise;
+    try {
+      promise = video.play();
+    } catch (error) {
+      return Promise.resolve(false);
+    }
+    if (!promise || typeof promise.then !== "function")
+      return Promise.resolve(true);
+    return promise.then(
+      function () {
+        return true;
+      },
+      function () {
+        return false;
+      },
+    );
+  }
+
+  function seekTo(video, time) {
+    return new Promise(function (resolve) {
+      if (!video) {
+        resolve(false);
+        return;
+      }
+      if (
+        !video.seeking &&
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        Math.abs(video.currentTime - time) <= 0.02
+      ) {
+        resolve(true);
+        return;
+      }
+      let settled = false;
+      const timeoutId = setTimeout(finish, isWebKit ? 900 : 600);
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        video.removeEventListener("seeked", finish);
+        resolve(true);
+      }
+      video.addEventListener("seeked", finish);
+      try {
+        video.currentTime = time;
+      } catch (error) {
+        finish();
+      }
+    });
+  }
+
+  // Seeks and resolves once the new frame has actually been handed to the
+  // compositor. The frame callback is registered before seeking so a fast
+  // seek can't slip past it.
+  function presentFrame(video, time) {
+    return new Promise(function (resolve) {
+      if (!video) {
+        resolve(false);
+        return;
+      }
+      if (
+        !video.seeking &&
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        Math.abs(video.currentTime - time) <= 0.02
+      ) {
+        resolve(true);
+        return;
+      }
+      const hasFrameCallback =
+        typeof video.requestVideoFrameCallback === "function";
+      let settled = false;
+      let callbackId = null;
+      const timeoutId = setTimeout(finish, isWebKit ? 900 : 600);
+
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        video.removeEventListener("seeked", onSeeked);
+        if (callbackId !== null) {
+          try {
+            video.cancelVideoFrameCallback(callbackId);
+          } catch (error) {}
+        }
+        resolve(true);
+      }
+
+      function onSeeked() {
+        if (hasFrameCallback) return;
+        requestAnimationFrame(function () {
+          requestAnimationFrame(finish);
+        });
+      }
+
+      if (hasFrameCallback) {
+        callbackId = video.requestVideoFrameCallback(function () {
+          callbackId = null;
+          finish();
+        });
+      }
+      video.addEventListener("seeked", onSeeked);
+      try {
+        video.currentTime = time;
+      } catch (error) {
+        finish();
+      }
+    });
   }
 
   function buildMediaMap() {
@@ -195,6 +348,97 @@ function initNumenosMedia() {
         const video = item.querySelector("[data-bg-video]");
         if (video) gsap.set(video, { opacity: 0 });
       });
+  }
+
+  function openHeroGate() {
+    if (!resolveHeroGate) return;
+    resolveHeroGate();
+    resolveHeroGate = null;
+  }
+
+  function watchHeroGate() {
+    if (reducedMotion.matches) {
+      openHeroGate();
+      return;
+    }
+    setTimeout(openHeroGate, CONFIG.heroGateMaxWaitMs * 2);
+    function onScroll() {
+      if (window.scrollY > getViewportHeight() * CONFIG.heroGateScrollRatio) {
+        openHeroGate();
+        window.removeEventListener("scroll", onScroll);
+      }
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+  }
+
+  // Runs `callback` once, when the section comes within `start` of the
+  // viewport (from either direction) and the hero has finished claiming the
+  // network. Sections already scrolled past don't download until the visitor
+  // heads back to them.
+  function whenNear(trigger, start, callback) {
+    if (!trigger) return;
+    let fired = false;
+    const nearTrigger = ScrollTrigger.create({
+      trigger,
+      start,
+      end: "bottom top",
+      onToggle: function (self) {
+        if (!self.isActive || fired) return;
+        heroGate.then(function () {
+          // The visitor may have scrolled past while the hero was loading.
+          if (fired || !nearTrigger.isActive) return;
+          fired = true;
+          nearTrigger.kill();
+          callback();
+        });
+      },
+    });
+  }
+
+  const prefetchQueue = [];
+  let prefetchRunning = 0;
+
+  // Queues a background download. `task` starts it and returns a promise
+  // that settles once the file is buffered enough to free its slot.
+  function prefetch(task) {
+    return new Promise(function (resolve) {
+      prefetchQueue.push({ task, resolve });
+      pumpPrefetch();
+    });
+  }
+
+  function pumpPrefetch() {
+    while (
+      prefetchRunning < CONFIG.prefetchConcurrency &&
+      prefetchQueue.length
+    ) {
+      const job = prefetchQueue.shift();
+      prefetchRunning += 1;
+      Promise.resolve()
+        .then(job.task)
+        .catch(function () {
+          return false;
+        })
+        .then(function (result) {
+          prefetchRunning -= 1;
+          job.resolve(result);
+          pumpPrefetch();
+        });
+    }
+  }
+
+  function prefetchMedia(media, onReady) {
+    return prefetch(function () {
+      return prepareMedia(media).then(function (ready) {
+        if (!ready) return false;
+        if (onReady) onReady();
+        return waitForVideoBuffer(media.video, {
+          bufferSeconds: CONFIG.prefetchBufferSeconds,
+          maxWaitMs: CONFIG.prefetchMaxWaitMs,
+        });
+      });
+    });
   }
 
   function waitForVideoReady(video) {
@@ -227,11 +471,14 @@ function initNumenosMedia() {
     return end;
   }
 
+  // `strict` ignores the browser's own "can play through" estimate, which is
+  // optimistic on a connection shared with other downloads.
   function waitForVideoBuffer(video, options) {
     options = options || {};
     const bufferSeconds = options.bufferSeconds || 0;
     const bufferFraction = options.bufferFraction || 0;
     const maxWaitMs = options.maxWaitMs || CONFIG.bufferMaxWaitMs;
+    const strict = options.strict === true;
     if (!bufferSeconds && !bufferFraction) return Promise.resolve(true);
     return new Promise(function (resolve) {
       const startedAt = performance.now();
@@ -257,7 +504,7 @@ function initNumenosMedia() {
           );
           if (getBufferedEndFromStart(video) >= target - 0.05)
             return cleanup(true);
-          if (video.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA)
+          if (!strict && video.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA)
             return cleanup(true);
         }
         if (performance.now() - startedAt >= maxWaitMs) return cleanup(false);
@@ -284,6 +531,16 @@ function initNumenosMedia() {
     return waitForVideoReady(video).then(function (ready) {
       return ready && video.dataset.src === requestedUrl;
     });
+  }
+
+  function unloadVideo(video) {
+    video.pause();
+    video.removeAttribute("src");
+    delete video.dataset.src;
+    video.preload = "none";
+    try {
+      video.load();
+    } catch (error) {}
   }
 
   function prepareMedia(media) {
@@ -326,17 +583,11 @@ function initNumenosMedia() {
     media.loadVersion += 1;
     media.loadingPromise = null;
     disableSmoothLoop(media);
-    video.pause();
     gsap.killTweensOf(video);
     gsap.set(video, { opacity: 0 });
-    video.removeAttribute("src");
-    delete video.dataset.src;
-    video.preload = "none";
+    unloadVideo(video);
     media.loaded = false;
     media.revealed = false;
-    try {
-      video.load();
-    } catch (error) {}
   }
 
   function revealVideo(media, duration) {
@@ -452,10 +703,14 @@ function initNumenosMedia() {
     if (!trigger || !incoming || !outgoing) return;
     options = options || {};
     incoming.item.classList.add("is-media-reveal");
+    // A fully masked layer still costs a full-screen composite every frame,
+    // so layers stay out of the render tree until their wipe begins and
+    // leave it again once they have faded out underneath the next one.
     gsap.set(incoming.item, {
       opacity: 1,
       scale: 1.018,
       "--media-reveal": "-16%",
+      visibility: "hidden",
     });
 
     const timeline = gsap.timeline({
@@ -475,6 +730,7 @@ function initNumenosMedia() {
         invalidateOnRefresh: true,
       },
     });
+    timeline.set(incoming.item, { visibility: "inherit" }, 0.001);
     timeline.to(
       incoming.item,
       { "--media-reveal": "114%", scale: 1, duration: 1, ease: "none" },
@@ -490,6 +746,7 @@ function initNumenosMedia() {
       { opacity: 0, duration: 0.25, ease: "none" },
       0.75,
     );
+    timeline.set(outgoing.item, { visibility: "hidden" }, 1);
   }
 
   function createReducedMotionSwap(section, incoming, outgoing, options) {
@@ -620,6 +877,20 @@ function initNumenosMedia() {
     initStaticReveals(cLayersMedia);
   }
 
+  function getNewsContent() {
+    return (
+      document.querySelector(".section_news .padding-global") ||
+      document.querySelector(".section_news")
+    );
+  }
+
+  function getLastTeamCard() {
+    const teamCards = Array.from(
+      document.querySelectorAll(".section_team .team_card"),
+    );
+    return teamCards[teamCards.length - 1] || null;
+  }
+
   function initStaticReveals(cLayersMedia) {
     const cLayers = getSectionByRole("c-layers");
     if (!cLayers || !cLayersMedia) return;
@@ -647,10 +918,7 @@ function initNumenosMedia() {
         revealStart = CONFIG.cLayersToTeamRevealStart;
         revealEnd = CONFIG.cLayersToTeamRevealEnd;
       } else if (section.matches(".section_news")) {
-        const teamCards = Array.from(
-          document.querySelectorAll(".section_team .team_card"),
-        );
-        const lastTeamCard = teamCards[teamCards.length - 1];
+        const lastTeamCard = getLastTeamCard();
 
         if (lastTeamCard) {
           revealTrigger = lastTeamCard;
@@ -664,14 +932,12 @@ function initNumenosMedia() {
           };
         }
       } else if (section.matches(".c-footer")) {
-        const newsExit =
-          document.querySelector(".section_news .w-pagination-next") ||
-          Array.from(
-            document.querySelectorAll(".section_news .news_card"),
-          ).pop();
+        // The whole news block (cards + "show more") rather than the button,
+        // which disappears once every item has loaded.
+        const newsContent = getNewsContent();
 
-        if (newsExit) {
-          revealTrigger = newsExit;
+        if (newsContent) {
+          revealTrigger = newsContent;
           revealStart = "bottom top";
           revealEnd = function () {
             const distance = responsiveValue(
@@ -701,23 +967,119 @@ function initNumenosMedia() {
     });
   }
 
+  // Holds the news and footer content back until the previous section's
+  // content has left the screen and the background wipe is underway.
+  function initSectionGaps() {
+    if (reducedMotion.matches) return;
+    const news = document.querySelector(".section_news");
+    const footer = document.querySelector(".c-footer");
+    const gaps = [];
+
+    if (news) {
+      gaps.push({
+        section: news,
+        anchor: function () {
+          return getLastTeamCard() || document.querySelector(".section_team");
+        },
+        content: getNewsContent,
+        revealVh: responsiveValue(
+          CONFIG.staticRevealDistanceVh,
+          CONFIG.mobile.newsRevealDistanceVh,
+        ),
+        size: 0,
+      });
+    }
+
+    if (footer) {
+      gaps.push({
+        section: footer,
+        anchor: getNewsContent,
+        content: function () {
+          return footer.querySelector(".padding-global") || footer;
+        },
+        revealVh: responsiveValue(
+          CONFIG.staticRevealDistanceVh,
+          CONFIG.mobile.footerRevealDistanceVh,
+        ),
+        size: 0,
+      });
+    }
+
+    if (!gaps.length) return;
+
+    // Sized against the largest mobile viewport so the gap still covers the
+    // screen after the browser's address bar collapses.
+    const probe = document.createElement("div");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;";
+    document.body.appendChild(probe);
+
+    function applyGaps() {
+      const viewport = Math.max(probe.offsetHeight || 0, window.innerHeight);
+      gaps.forEach(function (gap) {
+        const anchor = gap.anchor();
+        const content = gap.content();
+        if (!anchor || !content) return;
+        const naturalDistance =
+          content.getBoundingClientRect().top -
+          anchor.getBoundingClientRect().bottom -
+          gap.size;
+        const lead =
+          ((getViewportHeight() * gap.revealVh) / 100) *
+          CONFIG.sectionGapLeadRatio;
+        const size = Math.max(0, Math.round(viewport + lead - naturalDistance));
+        if (size === gap.size) return;
+        gap.size = size;
+        gap.section.style.marginTop = `${size}px`;
+      });
+    }
+
+    ScrollTrigger.addEventListener("refreshInit", applyGaps);
+    applyGaps();
+  }
+
   function initHero() {
     const section = getSectionByRole("hero");
     const media = getSectionMedia(section);
-    if (!section || !media) return;
+    if (!section || !media) {
+      openHeroGate();
+      return;
+    }
 
     gsap.set(media.item, { opacity: 1, scale: 1 });
 
     const video = media.video;
-    if (!video || reducedMotion.matches) return;
+    if (!video || reducedMotion.matches) {
+      openHeroGate();
+      return;
+    }
 
     configureVideo(video);
     video.loop = true;
     media.active = true;
     activeMedia.add(media);
 
+    // A short head start in the buffer before the first frame moves, so the
+    // opening seconds don't stutter while the rest streams in.
     prepareMedia(media).then(function (ready) {
-      if (ready) revealAndPlay(media, CONFIG.revealDuration);
+      if (!ready) {
+        openHeroGate();
+        return;
+      }
+      waitForVideoBuffer(video, {
+        bufferSeconds: CONFIG.heroStartBufferSeconds,
+        maxWaitMs: CONFIG.heroStartMaxWaitMs,
+        strict: true,
+      })
+        .then(function () {
+          if (media.active) revealAndPlay(media, CONFIG.revealDuration);
+          return waitForVideoBuffer(video, {
+            bufferSeconds: CONFIG.heroGateBufferSeconds,
+            maxWaitMs: CONFIG.heroGateMaxWaitMs,
+          });
+        })
+        .then(openHeroGate);
     });
 
     ScrollTrigger.create({
@@ -730,7 +1092,11 @@ function initNumenosMedia() {
       onEnterBack: function () {
         media.active = true;
         activeMedia.add(media);
-        safePlay(video);
+        if (media.loaded && !media.revealed) {
+          revealAndPlay(media, CONFIG.revealDuration);
+        } else {
+          safePlay(video);
+        }
       },
     });
   }
@@ -745,11 +1111,28 @@ function initNumenosMedia() {
     let activationId = 0;
     let shouldBeActive = false;
 
+    // Parks the video on its first frame. With `holdVisible` that frame stays
+    // on screen, so a wipe reveals the start of the animation, not the poster.
     function holdAtStart(keepVisible) {
       activationId += 1;
+      const requestId = activationId;
       deactivateMedia(media);
       disableSmoothLoop(media);
       media.video.loop = false;
+      if (options.holdVisible) {
+        if (!media.loaded) return;
+        seekTo(media.video, FIRST_FRAME_TIME).then(function () {
+          if (requestId !== activationId) return;
+          media.revealed = true;
+          gsap.to(media.video, {
+            opacity: 1,
+            duration: 0.25,
+            ease: "power1.out",
+            overwrite: true,
+          });
+        });
+        return;
+      }
       try {
         media.video.currentTime = 0;
       } catch (error) {}
@@ -762,34 +1145,68 @@ function initNumenosMedia() {
     function activatePlayback() {
       shouldBeActive = true;
       const requestId = ++activationId;
-      prepareMedia(media).then(function (ready) {
-        if (!ready || requestId !== activationId) return;
-        if (options.restartOnActivate) {
-          disableSmoothLoop(media);
-          media.video.pause();
-          media.video.loop = false;
-          try {
-            media.video.currentTime = 0;
-          } catch (error) {}
-          media.revealed = false;
-          gsap.set(media.video, { opacity: 0 });
-        }
-        activate(media);
-      });
+      // On phones About's band is already active at load; it still waits for
+      // the hero so the two don't split the connection.
+      heroGate
+        .then(function () {
+          if (requestId !== activationId) return false;
+          return prepareMedia(media);
+        })
+        .then(function (ready) {
+          if (!ready || requestId !== activationId) return false;
+          return waitForVideoBuffer(media.video, {
+            bufferSeconds: CONFIG.playbackStartBufferSeconds,
+            maxWaitMs: CONFIG.playbackStartMaxWaitMs,
+            strict: true,
+          }).then(function () {
+            return true;
+          });
+        })
+        .then(function (ready) {
+          if (!ready || requestId !== activationId) return;
+          if (options.restartOnActivate) {
+            disableSmoothLoop(media);
+            media.video.pause();
+            media.video.loop = false;
+            try {
+              media.video.currentTime = 0;
+            } catch (error) {}
+            if (options.holdVisible) {
+              media.revealed = true;
+              gsap.set(media.video, { opacity: 1 });
+            } else {
+              media.revealed = false;
+              gsap.set(media.video, { opacity: 0 });
+            }
+          }
+          activate(media);
+        });
     }
 
-    ScrollTrigger.create({
-      trigger: section,
-      start: CONFIG.playbackPrepareStart,
-      once: true,
-      onEnter: function () {
-        prepareMedia(media).then(function (ready) {
-          if (ready && options.holdAtStart && !shouldBeActive) {
-            holdAtStart(false);
-          }
-        });
-      },
+    function holdIfIdle() {
+      if (options.holdAtStart && !shouldBeActive) holdAtStart(false);
+    }
+
+    whenNear(section, CONFIG.prepareStart, function () {
+      prefetchMedia(media, holdIfIdle);
     });
+
+    // A held first frame must be ready before the wipe uncovers it, even if
+    // the download queue is still busy with something else.
+    if (options.holdVisible) {
+      ScrollTrigger.create({
+        trigger: section,
+        start: "top bottom",
+        end: "bottom top",
+        onEnter: function () {
+          heroGate.then(function () {
+            prepareMedia(media).then(function (ready) {
+              if (ready) holdIfIdle();
+            });
+          });
+        },
+      });
+    }
 
     ScrollTrigger.create({
       trigger: section,
@@ -804,12 +1221,13 @@ function initNumenosMedia() {
       onEnterBack: activatePlayback,
       onLeave: function () {
         shouldBeActive = false;
-        if (options.resetOnDeactivate) holdAtStart(true);
-        else deactivateMedia(media);
+        activationId += 1;
+        deactivateMedia(media);
       },
       onLeaveBack: function () {
         shouldBeActive = false;
-        if (options.resetOnDeactivate) holdAtStart(true);
+        activationId += 1;
+        if (options.resetOnLeaveBack) holdAtStart(true);
         else deactivateMedia(media);
       },
     });
@@ -825,7 +1243,17 @@ function initNumenosMedia() {
     };
   }
 
-  function initStory(handles) {
+  // Story: three steps, each entered through a transition clip and (for steps
+  // 1 and 3) held on a seamless loop. The engine always converges on the step
+  // that matches the scroll position:
+  //   - forward uses the transition clip, backward its reversed copy
+  //     (data-video-*-reverse) or, without one, frame-by-frame seeking;
+  //   - changing direction mid-clip continues from the mirrored frame;
+  //   - when the visitor is more than one step ahead, in-between clips play
+  //     at catch-up speed;
+  //   - leaving the section parks it at the edge it left through, so coming
+  //     back in always starts from a known state.
+  function initStory() {
     const section = getSectionByRole("story");
     const media = getSectionMedia(section);
     if (!section || !media || reducedMotion.matches) return null;
@@ -843,751 +1271,700 @@ function initNumenosMedia() {
     const rows = Array.from(section.querySelectorAll("[data-story-step]"));
     if (!manifestRoot || !playerA || !playerB || rows.length !== 3) return null;
 
-    const SEG_ORDER = [
-      "step-1-transition",
-      "step-1-loop",
-      "step-2-transition",
-      "step-3-transition",
-      "step-3-loop",
-    ];
+    const stage = playerA.parentElement;
+    const about = getSectionByRole("about");
+    const aboutTitle = about ? about.querySelector("[data-about-title]") : null;
 
-    const PREVIEW_SEGMENTS = {
-      "step-1-transition": [0, 0.16],
-      "step-1-loop": [0.22, 0.36],
-      "step-2-transition": [0.42, 0.56],
-      "step-3-transition": [0.62, 0.76],
-      "step-3-loop": [0.82, 0.96],
-    };
-
-    const manifest = {};
+    const sources = {};
     manifestRoot
       .querySelectorAll("[data-story-source]")
       .forEach(function (source) {
-        manifest[source.getAttribute("data-story-source")] =
-          getVideoSource(source);
+        sources[source.getAttribute("data-story-source")] = source;
       });
 
-    const manifestUrls = SEG_ORDER.map(function (id) {
-      return manifest[id];
-    }).filter(Boolean);
+    const clips = {};
+    function defineClip(key, url, loop) {
+      if (url) clips[key] = { key, url, loop, video: null, ready: null };
+    }
+    [1, 2, 3].forEach(function (stepNumber) {
+      const transition = sources[STORY_STEPS[stepNumber].transition];
+      const rest = STORY_STEPS[stepNumber].rest
+        ? sources[STORY_STEPS[stepNumber].rest]
+        : null;
+      if (transition) {
+        defineClip(`${stepNumber}:forward`, getVideoSource(transition), false);
+        defineClip(
+          `${stepNumber}:reverse`,
+          getVideoSource(transition, "reverse"),
+          false,
+        );
+      }
+      if (rest) defineClip(`${stepNumber}:rest`, getVideoSource(rest), true);
+    });
+    if (!clips["1:forward"] || !clips["2:forward"] || !clips["3:forward"])
+      return null;
 
-    const previewMode =
-      manifestUrls.length === SEG_ORDER.length &&
-      manifestUrls.every(function (url) {
-        return url === manifestUrls[0];
-      });
+    const clipList = Object.values(clips);
 
+    // One <video> per clip: switching clips never swaps a src, so nothing is
+    // re-downloaded and no element flashes empty mid-transition.
+    const sparePlayers = [playerA, playerB];
     [playerA, playerB].forEach(function (player) {
       configureVideo(player);
       player.autoplay = false;
-      player.loop = false;
       player.removeAttribute("autoplay");
+      player.loop = false;
       player.pause();
     });
-    gsap.set(fallbackImages, { autoAlpha: 0 });
-    gsap.set([playerA, playerB], { opacity: 0, zIndex: 1 });
+    gsap.set([playerA, playerB], {
+      opacity: 0,
+      zIndex: 1,
+      visibility: "hidden",
+    });
 
-    let visible = playerA;
-    let idle = playerB;
-    let current = 0;
-    let desired = 0;
-    let processing = false;
-    let sectionActive = false;
-    let lifecycleId = 0;
-    let loopVideo = null;
-    let loopStop = null;
-    let loopRunId = 0;
-    let transitionStop = null;
-
-    function segmentFor(id, duration) {
-      if (!duration || !Number.isFinite(duration)) {
-        return { in: 0, out: 0 };
-      }
-
-      if (!previewMode) {
-        return { in: 0, out: duration };
-      }
-
-      const range = PREVIEW_SEGMENTS[id] || [0, 1];
-
-      return {
-        in: duration * range[0],
-        out: duration * range[1],
-      };
+    function createPlayer() {
+      if (sparePlayers.length) return sparePlayers.shift();
+      const player = playerA.cloneNode(false);
+      player.removeAttribute("data-bg-video");
+      player.removeAttribute("data-story-player");
+      player.removeAttribute("data-src");
+      player.removeAttribute("src");
+      configureVideo(player);
+      stage.appendChild(player);
+      gsap.set(player, { opacity: 0, zIndex: 1, visibility: "hidden" });
+      return player;
     }
 
-    function seekVideo(video, time) {
-      try {
-        video.currentTime = time;
-      } catch (error) {}
+    function clipVideo(clip) {
+      if (!clip.video) {
+        clip.video = createPlayer();
+        clip.video.setAttribute("data-story-clip", clip.key);
+      }
+      return clip.video;
     }
 
-    function seekStoryFrame(video, time) {
-      if (!video || !Number.isFinite(time)) return Promise.resolve();
-
-      if (Math.abs(video.currentTime - time) <= 0.03) {
-        return Promise.resolve();
-      }
-
-      return new Promise(function (resolve) {
-        let resolved = false;
-        let timeoutId = null;
-
-        function cleanup() {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-          video.removeEventListener("seeked", finish);
-          resolve();
-        }
-
-        function finish() {
-          cleanup();
-        }
-
-        video.addEventListener("seeked", finish, { once: true });
-        timeoutId = setTimeout(finish, isWebKit ? 450 : 250);
-        seekVideo(video, time);
-      });
-    }
-
-    function waitForPresentedVideoFrame(video) {
-      if (!video) return Promise.resolve();
-
-      return new Promise(function (resolve) {
-        let resolved = false;
-        let frameCallbackId = null;
-        const timeoutId = setTimeout(finish, isWebKit ? 600 : 350);
-
-        function finish() {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(timeoutId);
-
-          if (
-            frameCallbackId !== null &&
-            typeof video.cancelVideoFrameCallback === "function"
-          ) {
-            try {
-              video.cancelVideoFrameCallback(frameCallbackId);
-            } catch (error) {}
-          }
-
-          resolve();
-        }
-
-        if (typeof video.requestVideoFrameCallback === "function") {
-          frameCallbackId = video.requestVideoFrameCallback(finish);
-          return;
-        }
-
-        requestAnimationFrame(function () {
-          requestAnimationFrame(finish);
-        });
-      });
-    }
-
-    function watchClipEnd(video, id, onReach) {
-      let stopped = false;
-      let frameCallbackId = null;
-
-      function reached() {
-        const seg = segmentFor(id, video.duration);
-        return (
-          seg.out > 0 && (video.currentTime >= seg.out - 0.05 || video.ended)
-        );
-      }
-
-      function frame() {
-        if (stopped) return;
-
-        if (reached()) {
-          onReach();
-        }
-
-        if (!stopped && typeof video.requestVideoFrameCallback === "function") {
-          frameCallbackId = video.requestVideoFrameCallback(frame);
-        }
-      }
-
-      function onTime() {
-        if (!stopped && reached()) onReach();
-      }
-
-      video.addEventListener("timeupdate", onTime);
-      video.addEventListener("ended", onReach);
-
-      if (typeof video.requestVideoFrameCallback === "function") {
-        frameCallbackId = video.requestVideoFrameCallback(frame);
-      }
-
-      return function () {
-        stopped = true;
-        video.removeEventListener("timeupdate", onTime);
-        video.removeEventListener("ended", onReach);
-
-        if (
-          frameCallbackId !== null &&
-          typeof video.cancelVideoFrameCallback === "function"
-        ) {
-          try {
-            video.cancelVideoFrameCallback(frameCallbackId);
-          } catch (error) {}
-        }
-      };
-    }
-
-    function swap() {
-      const previous = visible;
-      visible = idle;
-      idle = previous;
-    }
-
-    function crossfade(showVideo, hideVideo) {
-      gsap.killTweensOf([showVideo, hideVideo]);
-
-      gsap.set(showVideo, { zIndex: 2 });
-
-      if (hideVideo && hideVideo !== showVideo) {
-        gsap.set(hideVideo, { zIndex: 1 });
-      }
-
-      gsap.to(showVideo, {
-        opacity: 1,
-        duration: CONFIG.storyCrossfade,
-        ease: "power1.inOut",
-        overwrite: true,
-      });
-
-      if (hideVideo && hideVideo !== showVideo) {
-        gsap.to(hideVideo, {
-          opacity: 0,
-          duration: CONFIG.storyCrossfade,
-          ease: "power1.inOut",
-          overwrite: true,
-          onComplete: function () {
-            hideVideo.pause();
-          },
+    function loadClip(clip) {
+      if (!clip) return Promise.resolve(false);
+      if (!clip.ready) {
+        const video = clipVideo(clip);
+        video.loop = clip.loop;
+        clip.ready = loadVideo(video, clip.url).then(function (ok) {
+          if (!ok) clip.ready = null;
+          return ok;
         });
       }
+      return clip.ready;
     }
 
-    function stopLoop() {
-      loopRunId += 1;
-      if (loopStop) loopStop();
-      loopStop = null;
-      loopVideo = null;
-    }
-
-    function startSegmentLoop(video, id) {
-      stopLoop();
-
-      const sourceUrl = video.dataset.src;
-      const runId = loopRunId;
-      loopVideo = video;
-
-      if (mobileQuery.matches && !previewMode) {
-        video.loop = true;
-        safePlay(video);
-        loopStop = function () {
-          if (video.dataset.src === sourceUrl) video.loop = false;
-        };
-        return;
-      }
-
-      video.loop = false;
-      safePlay(video);
-
-      let restarting = false;
-
-      loopStop = watchClipEnd(video, id, function () {
-        if (
-          !sectionActive ||
-          restarting ||
-          loopVideo !== video ||
-          visible !== video
-        ) {
-          return;
-        }
-
-        restarting = true;
-        video.pause();
-        gsap.killTweensOf(video);
-        gsap.set(video, { opacity: 1 });
-
-        seekStoryFrame(video, segmentFor(id, video.duration).in).then(
-          function () {
-            if (
-              !sectionActive ||
-              runId !== loopRunId ||
-              loopVideo !== video ||
-              visible !== video ||
-              video.dataset.src !== sourceUrl
-            ) {
-              return;
-            }
-
-            safePlay(video);
-            restarting = false;
-          },
-        );
-      });
-    }
-
-    function preloadStoryPlayer(video, assetId) {
-      const url = manifest[assetId];
-
-      return loadVideo(video, url).then(function (ready) {
-        if (!ready || video.dataset.src !== url) return false;
-
-        video.pause();
-        video.loop = false;
-
-        const segment = segmentFor(assetId, video.duration);
-
-        return seekStoryFrame(video, segment.in).then(function () {
-          return video.dataset.src === url;
-        });
-      });
-    }
-
-    function watchToEnd(video, id) {
-      return new Promise(function (resolve) {
-        let done = false;
-        let stop = null;
-        const seg = segmentFor(id, video.duration);
-        const span = seg.out > 0 ? seg.out - seg.in : 8;
-        const watchdog = setTimeout(
-          function () {
-            finish(true);
-          },
-          Math.max(600, span * 1000 + 900),
-        );
-
-        function finish(completed) {
-          if (done) return;
-
-          done = true;
-          clearTimeout(watchdog);
-
-          if (stop) stop();
-          if (transitionStop === cancel) transitionStop = null;
-
-          if (completed) {
-            video.pause();
-
-            const settled = segmentFor(id, video.duration);
-
-            if (settled.out > 0) {
-              seekVideo(video, Math.max(0, settled.out - 0.03));
-            }
-          }
-
-          resolve(completed);
-        }
-
-        function cancel() {
-          finish(false);
-        }
-
-        transitionStop = cancel;
-        stop = watchClipEnd(video, id, function () {
-          finish(true);
-        });
-      });
-    }
-
-    function playReverseToStart(video, assetId, id) {
-      return new Promise(function (resolve) {
-        const segment = segmentFor(assetId, video.duration);
-        const startTime = Math.max(
-          segment.in,
-          Math.min(video.currentTime, segment.out - 0.03),
-        );
-        const frameInterval = 1000 / CONFIG.storyReverseFps;
-        const startedAt = performance.now();
-        let lastSeekAt = 0;
-        let rafId = null;
-        let settled = false;
-        const watchdogId = setTimeout(
-          function () {
-            finish(true);
-          },
-          Math.max(900, (startTime - segment.in) * 1000 + 1600),
-        );
-
-        function cleanup() {
-          clearTimeout(watchdogId);
-          if (rafId !== null) cancelAnimationFrame(rafId);
-          if (transitionStop === cancel) transitionStop = null;
-        }
-
-        function finish(completed) {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          video.pause();
-
-          if (!completed) {
-            resolve(false);
-            return;
-          }
-
-          seekStoryFrame(video, segment.in).then(function () {
-            resolve(isLifecycleValid(id));
+    function prefetchClip(clip) {
+      if (!clip || clip.ready || clip.queued) return;
+      clip.queued = true;
+      prefetch(function () {
+        clip.queued = false;
+        return loadClip(clip).then(function (ok) {
+          if (!ok) return false;
+          return waitForVideoBuffer(clip.video, {
+            bufferFraction: 1,
+            strict: true,
+            maxWaitMs: CONFIG.prefetchMaxWaitMs,
           });
-        }
-
-        function cancel() {
-          finish(false);
-        }
-
-        function frame(now) {
-          if (!isLifecycleValid(id)) {
-            cancel();
-            return;
-          }
-
-          const nextTime = Math.max(
-            segment.in,
-            startTime - (now - startedAt) / 1000,
-          );
-
-          if (now - lastSeekAt >= frameInterval || nextTime <= segment.in) {
-            lastSeekAt = now;
-            seekVideo(video, nextTime);
-          }
-
-          if (nextTime <= segment.in + 0.01) {
-            finish(true);
-            return;
-          }
-
-          rafId = requestAnimationFrame(frame);
-        }
-
-        transitionStop = cancel;
-        video.pause();
-        rafId = requestAnimationFrame(frame);
+        });
       });
     }
 
-    function cancelTransition() {
-      if (transitionStop) transitionStop();
-      transitionStop = null;
+    // Queued in the order they'll be needed: the next step's clips first,
+    // then the current step's, then the way back.
+    function preloadAround(stepNumber) {
+      [stepNumber + 1, stepNumber].forEach(function (n) {
+        if (n < 1 || n > 3) return;
+        prefetchClip(clips[`${n}:forward`]);
+        prefetchClip(clips[`${n}:rest`]);
+      });
+      if (stepNumber >= 2) prefetchClip(clips[`${stepNumber}:reverse`]);
     }
 
-    function isLifecycleValid(id) {
-      return sectionActive && id === lifecycleId;
+    let active = false;
+    let target = 0;
+    let step = 0;
+    let motion = null;
+    let opId = 0;
+    let shown = null;
+    let restReady = false;
+    let autoplayBlocked = false;
+
+    function setFallbacksVisible(visible) {
+      if (fallbackImages.length)
+        gsap.set(fallbackImages, { autoAlpha: visible ? 1 : 0 });
     }
 
-    async function playTransition(step, id) {
-      stopLoop();
-
-      const assetId = STORY_STEPS[step].transition;
-      const assetUrl = manifest[assetId];
-      const ready = await loadVideo(idle, assetUrl);
-
-      if (!ready || idle.dataset.src !== assetUrl || !isLifecycleValid(id))
-        return false;
-
-      idle.loop = false;
-
-      const segment = segmentFor(assetId, idle.duration);
-      await seekStoryFrame(idle, segment.in);
-
-      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
-
-      safePlay(idle);
-      await waitForPresentedVideoFrame(idle);
-
-      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
-
-      crossfade(idle, visible);
-      swap();
-
-      const completed = await watchToEnd(visible, assetId);
-
-      return completed && isLifecycleValid(id);
+    function retireClip(clip) {
+      if (!clip || !clip.video || clip === shown) return;
+      clip.video.pause();
+      gsap.killTweensOf(clip.video);
+      gsap.set(clip.video, { opacity: 0, visibility: "hidden", zIndex: 1 });
     }
 
-    async function playReverseTransition(step, id) {
-      stopLoop();
-
-      const assetId = STORY_STEPS[step].transition;
-      const assetUrl = manifest[assetId];
-      const ready = await loadVideo(idle, assetUrl);
-
-      if (!ready || idle.dataset.src !== assetUrl || !isLifecycleValid(id))
-        return false;
-
-      idle.pause();
-      idle.loop = false;
-
-      const segment = segmentFor(assetId, idle.duration);
-      await seekStoryFrame(idle, Math.max(segment.in, segment.out - 0.03));
-      await waitForPresentedVideoFrame(idle);
-
-      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
-
-      crossfade(idle, visible);
-      swap();
-
-      return playReverseToStart(visible, assetId, id);
+    // Puts a clip on top at opacity 0 so it can seek/start behind the
+    // current frame before fading in.
+    function stageClip(clip) {
+      if (clip === shown) return;
+      gsap.killTweensOf(clip.video);
+      gsap.set(clip.video, { visibility: "inherit", opacity: 0, zIndex: 3 });
     }
 
-    async function showRest(step, id) {
-      const rest = STORY_STEPS[step].rest;
-
-      if (!rest.id) {
-        stopLoop();
-        visible.pause();
-        return isLifecycleValid(id);
-      }
-
-      const restUrl = manifest[rest.id];
-      const ready = await loadVideo(idle, restUrl);
-
-      if (!ready || idle.dataset.src !== restUrl || !isLifecycleValid(id))
-        return false;
-
-      idle.loop = false;
-
-      const segment = segmentFor(rest.id, idle.duration);
-      await seekStoryFrame(idle, segment.in);
-
-      if (idle.dataset.src !== restUrl || !isLifecycleValid(id)) return false;
-
-      safePlay(idle);
-      await waitForPresentedVideoFrame(idle);
-
-      if (idle.dataset.src !== restUrl || !isLifecycleValid(id)) return false;
-
-      crossfade(idle, visible);
-      swap();
-      startSegmentLoop(visible, rest.id);
-
-      return true;
+    function fadeFor(clip) {
+      if (!shown || shown === clip) return 0;
+      const shownIsLooping = shown.loop && shown.video && !shown.video.paused;
+      return shownIsLooping ? CONFIG.storyCrossfade : CONFIG.storySwapFade;
     }
 
-    async function restoreStableStep(step, id) {
-      const rest = STORY_STEPS[step].rest;
-
-      if (rest.id) {
-        return showRest(step, id);
-      }
-
-      const assetId = STORY_STEPS[step].transition;
-      const assetUrl = manifest[assetId];
-      const ready = await loadVideo(idle, assetUrl);
-
-      if (!ready || idle.dataset.src !== assetUrl || !isLifecycleValid(id))
-        return false;
-
-      const segment = segmentFor(assetId, idle.duration);
-      await seekStoryFrame(idle, Math.max(0, segment.out - 0.03));
-
-      if (idle.dataset.src !== assetUrl || !isLifecycleValid(id)) return false;
-
-      stopLoop();
-      idle.pause();
-      crossfade(idle, visible);
-      swap();
-
-      return true;
-    }
-
-    async function processStory() {
-      if (processing || !sectionActive || desired < 1) return;
-
-      processing = true;
-
-      const id = lifecycleId;
-
-      try {
-        while (isLifecycleValid(id) && current !== desired) {
-          if (desired > current) {
-            const nextStep = mobileQuery.matches ? desired : current + 1;
-            const played = await playTransition(nextStep, id);
-
-            if (!played || !isLifecycleValid(id)) return;
-
-            current = nextStep;
-
-            if (current === desired) {
-              const rested = await showRest(current, id);
-
-              if (!rested || !isLifecycleValid(id)) return;
-            }
-
-            continue;
-          }
-
-          const previousStep = Math.max(1, current - 1);
-          const reversed = await playReverseTransition(current, id);
-
-          if (!reversed || !isLifecycleValid(id)) return;
-
-          current = previousStep;
-
-          if (current === desired) {
-            const rested = await showRest(current, id);
-
-            if (!rested || !isLifecycleValid(id)) return;
-          }
-        }
-      } finally {
-        if (id === lifecycleId) {
-          processing = false;
-
-          if (sectionActive && desired > 0 && current !== desired) {
-            processStory();
-          }
-        }
-      }
-    }
-
-    function requestStep(stepNumber) {
-      const nextDesired = gsap.utils.clamp(1, 3, stepNumber);
-      if (nextDesired === desired) return;
-
-      desired = nextDesired;
-      if (!sectionActive) return;
-
-      if (mobileQuery.matches && processing) {
-        lifecycleId += 1;
-        processing = false;
-        cancelTransition();
-        stopLoop();
-        gsap.killTweensOf([playerA, playerB]);
-        playerA.pause();
-        playerB.pause();
-      }
-
-      processStory();
-    }
-
-    function preloadStory() {
-      const transitionPlayer = idle;
-      const restPlayer = visible;
-      const transitionId = STORY_STEPS[1].transition;
-      const transitionUrl = manifest[transitionId];
-
-      preloadStoryPlayer(transitionPlayer, transitionId)
-        .then(function (ready) {
-          if (
-            !ready ||
-            current !== 0 ||
-            transitionPlayer.dataset.src !== transitionUrl
-          ) {
-            return;
-          }
-          transitionPlayer.pause();
-        })
-        .catch(function () {});
-      preloadStoryPlayer(restPlayer, STORY_STEPS[1].rest.id).catch(
-        function () {},
-      );
-    }
-
-    function deactivateStory() {
-      if (!sectionActive && !processing) return;
-
-      sectionActive = false;
-      lifecycleId += 1;
-      processing = false;
-
-      cancelTransition();
-      stopLoop();
-
-      gsap.killTweensOf([playerA, playerB]);
-      playerA.pause();
-      playerB.pause();
-    }
-
-    function storyIsInViewport() {
-      const rect = section.getBoundingClientRect();
-      return rect.bottom > 0 && rect.top < getViewportHeight();
-    }
-
-    function resumeStory() {
-      if (!storyIsInViewport()) return;
-
-      sectionActive = true;
-      lifecycleId += 1;
-      processing = false;
-
-      const id = lifecycleId;
-
-      if (current < 1) {
-        processStory();
+    // Fades the new clip in over the old one (both opaque), then hides the
+    // old one, so there is never a dip to the layer underneath.
+    function showClip(clip, fade) {
+      const video = clip.video;
+      const previous = shown;
+      shown = clip;
+      setFallbacksVisible(false);
+      clipList.forEach(function (other) {
+        if (other !== clip && other !== previous) retireClip(other);
+      });
+      gsap.killTweensOf(video);
+      gsap.set(video, { visibility: "inherit", zIndex: 3 });
+      if (!previous || previous === clip || !fade) {
+        gsap.set(video, { opacity: 1 });
+        if (previous && previous !== clip) retireClip(previous);
         return;
       }
-
-      restoreStableStep(current, id).then(function (restored) {
-        if (!restored || !isLifecycleValid(id)) return;
-        processStory();
+      gsap.set(previous.video, { zIndex: 2 });
+      gsap.to(video, {
+        opacity: 1,
+        duration: fade,
+        ease: "power1.inOut",
+        onComplete: function () {
+          retireClip(previous);
+        },
       });
     }
 
-    rows.forEach(function (row) {
-      const stepNumber = parseInt(row.getAttribute("data-story-step"), 10);
-
-      ScrollTrigger.create({
-        trigger: row,
-        start: responsiveValue(
-          CONFIG.storyStepStart,
-          CONFIG.mobile.storyStepStart,
-        ),
-        end: "bottom top",
-
-        onEnter: function () {
-          requestStep(stepNumber);
-        },
-
-        onLeaveBack: function () {
-          if (stepNumber > 1) {
-            requestStep(stepNumber - 1);
-          }
-        },
+    // Shows a still frame of a clip, used when parking the story at an edge
+    // and when playback isn't allowed.
+    function presentStill(clip, time, fade, onShown) {
+      const id = ++opId;
+      loadClip(clip).then(function (ok) {
+        if (id !== opId || !ok) return;
+        const video = clip.video;
+        video.pause();
+        stageClip(clip);
+        const resolvedTime = typeof time === "function" ? time(video) : time;
+        seekTo(video, resolvedTime).then(function () {
+          if (id !== opId) return;
+          showClip(clip, fade);
+          restReady = true;
+          if (onShown) onShown(id);
+        });
       });
-    });
+    }
 
-    ScrollTrigger.create({
-      trigger: section,
-      start: CONFIG.playbackPrepareStart,
-      once: true,
-      onEnter: preloadStory,
-    });
+    function stepEndTime(video) {
+      return Math.max(0, (video.duration || 0) - 0.04);
+    }
 
-    ScrollTrigger.create({
-      trigger: section,
-      start: "top bottom",
+    function presentStepFrame(stepNumber, fade) {
+      if (stepNumber <= 0) {
+        presentStill(clips["1:forward"], FIRST_FRAME_TIME, fade);
+        return;
+      }
+      const restClip = clips[`${stepNumber}:rest`];
+      if (restClip) {
+        presentStill(restClip, FIRST_FRAME_TIME, fade);
+        return;
+      }
+      presentStill(clips[`${stepNumber}:forward`], stepEndTime, fade);
+    }
+
+    function ensureRest() {
+      if (step <= 0) {
+        if (!restReady) presentStepFrame(0, 0);
+        return;
+      }
+      const restClip = clips[`${step}:rest`];
+      if (!restClip) {
+        if (!restReady)
+          presentStepFrame(step, fadeFor(clips[`${step}:forward`]));
+        return;
+      }
+      if (shown === restClip && restReady) {
+        if (restClip.video.paused && !autoplayBlocked) {
+          restClip.video.loop = true;
+          safePlay(restClip.video);
+        }
+        return;
+      }
+      const id = ++opId;
+      loadClip(restClip).then(function (ok) {
+        if (id !== opId) return;
+        if (!ok) {
+          if (!restReady) presentStepFrame(step, 0);
+          return;
+        }
+        const video = restClip.video;
+        video.loop = true;
+        video.playbackRate = 1;
+        stageClip(restClip);
+        seekTo(video, FIRST_FRAME_TIME)
+          .then(function () {
+            if (id !== opId) return false;
+            return autoplayBlocked ? false : safePlay(video);
+          })
+          .then(function () {
+            if (id !== opId) return;
+            showClip(restClip, fadeFor(restClip));
+            restReady = true;
+          });
+      });
+    }
+
+    function currentFraction(m) {
+      const video = m.clip.video;
+      if (!m.started || !video || !video.duration) return 0;
+      if (m.seekReverse) return m.fraction;
+      return gsap.utils.clamp(0, 1, video.currentTime / video.duration);
+    }
+
+    function updateMotionRate() {
+      if (!motion) return;
+      const beyond = motion.dir > 0 ? target > motion.to : target < motion.to;
+      motion.rate = beyond ? CONFIG.storyCatchUpRate : 1;
+      if (motion.started && !motion.seekReverse && motion.clip.video) {
+        try {
+          motion.clip.video.playbackRate = motion.rate;
+        } catch (error) {}
+      }
+    }
+
+    function cancelMotion() {
+      if (!motion) return;
+      const m = motion;
+      motion = null;
+      if (m.stop) m.stop();
+      if (m.clip.video) m.clip.video.pause();
+    }
+
+    function finishMotion(id, landedOnFrame) {
+      if (!motion || motion.id !== id) return;
+      step = motion.to;
+      restReady = !!landedOnFrame;
+      motion = null;
+      reconcile();
+    }
+
+    // Autoplay refused: land on the transition's final frame instead.
+    function jumpToMotionEnd(m) {
+      const video = m.clip.video;
+      const endTime = m.seekReverse ? FIRST_FRAME_TIME : stepEndTime(video);
+      seekTo(video, endTime).then(function () {
+        if (!motion || motion.id !== m.id) return;
+        showClip(m.clip, 0);
+        finishMotion(m.id, true);
+      });
+    }
+
+    function watchPlayback(m) {
+      const video = m.clip.video;
+      let lastTime = video.currentTime;
+      let lastProgressAt = performance.now();
+      let rafId = null;
+
+      function stop() {
+        if (rafId !== null) cancelAnimationFrame(rafId);
+        rafId = null;
+        video.removeEventListener("ended", check);
+      }
+
+      function check() {
+        if (!motion || motion.id !== m.id) {
+          stop();
+          return;
+        }
+        const duration = video.duration;
+        if (video.ended || (duration && video.currentTime >= duration - 0.04)) {
+          stop();
+          video.pause();
+          finishMotion(m.id, true);
+          return;
+        }
+        const now = performance.now();
+        if (video.currentTime !== lastTime || document.hidden) {
+          lastTime = video.currentTime;
+          lastProgressAt = now;
+        } else if (now - lastProgressAt > CONFIG.storyStallTimeoutMs) {
+          // Stuck on the network: land on the step rather than freeze.
+          stop();
+          video.pause();
+          finishMotion(m.id, false);
+          return;
+        }
+        rafId = requestAnimationFrame(check);
+      }
+
+      m.stop = stop;
+      video.addEventListener("ended", check);
+      rafId = requestAnimationFrame(check);
+    }
+
+    function runPlayback(m) {
+      const video = m.clip.video;
+      const duration = video.duration;
+      if (!duration || !Number.isFinite(duration)) {
+        finishMotion(m.id, false);
+        return;
+      }
+      video.loop = false;
+      video.pause();
+      stageClip(m.clip);
+      const startTime = gsap.utils.clamp(
+        0,
+        duration - 0.05,
+        m.fraction * duration,
+      );
+      seekTo(video, startTime)
+        .then(function () {
+          if (!motion || motion.id !== m.id) return null;
+          video.playbackRate = m.rate;
+          return autoplayBlocked ? false : safePlay(video);
+        })
+        .then(function (played) {
+          if (played === null || !motion || motion.id !== m.id) return;
+          if (!played) {
+            if (!document.hidden) autoplayBlocked = true;
+            jumpToMotionEnd(m);
+            return;
+          }
+          m.started = true;
+          showClip(m.clip, fadeFor(m.clip));
+          watchPlayback(m);
+        });
+    }
+
+    // Fallback reverse without a reversed file: steps backwards through the
+    // forward clip in real time, only issuing a new seek once the previous
+    // one has landed so slow decoders drop frames instead of lagging.
+    function runSeekReverse(m) {
+      const video = m.clip.video;
+      const duration = video.duration;
+      if (!duration || !Number.isFinite(duration)) {
+        finishMotion(m.id, false);
+        return;
+      }
+      video.loop = false;
+      video.pause();
+      stageClip(m.clip);
+      let position = gsap.utils.clamp(
+        0,
+        duration - 0.04,
+        (1 - m.fraction) * duration,
+      );
+      seekTo(video, position).then(function () {
+        if (!motion || motion.id !== m.id) return;
+        m.started = true;
+        m.fraction = 1 - position / duration;
+        showClip(m.clip, fadeFor(m.clip));
+
+        const minStep = 1 / CONFIG.storyReverseFps;
+        let lastTick = performance.now();
+        let seeking = false;
+        let seekStartedAt = 0;
+        let rafId = null;
+
+        function onSeeked() {
+          seeking = false;
+        }
+
+        function stop() {
+          if (rafId !== null) cancelAnimationFrame(rafId);
+          rafId = null;
+          video.removeEventListener("seeked", onSeeked);
+        }
+
+        function tick(now) {
+          if (!motion || motion.id !== m.id) {
+            stop();
+            return;
+          }
+          const elapsed = Math.min(0.1, (now - lastTick) / 1000);
+          lastTick = now;
+          if (!document.hidden) {
+            position = Math.max(0, position - elapsed * m.rate);
+          }
+          m.fraction = 1 - position / duration;
+          if (seeking && now - seekStartedAt > 500) seeking = false;
+          if (
+            !seeking &&
+            (video.currentTime - position >= minStep ||
+              (position === 0 && video.currentTime > 0.001))
+          ) {
+            seeking = true;
+            seekStartedAt = now;
+            try {
+              video.currentTime = position;
+            } catch (error) {
+              seeking = false;
+            }
+          }
+          if (position === 0 && !seeking) {
+            stop();
+            finishMotion(m.id, true);
+            return;
+          }
+          rafId = requestAnimationFrame(tick);
+        }
+
+        m.stop = stop;
+        video.addEventListener("seeked", onSeeked);
+        rafId = requestAnimationFrame(tick);
+      });
+    }
+
+    function startMotion(dir, startFraction) {
+      const id = ++opId;
+      const from = step;
+      const to = step + dir;
+      const clipStep = dir > 0 ? to : from;
+      const reverseClip = dir < 0 ? clips[`${clipStep}:reverse`] : null;
+      const clip = reverseClip || clips[`${clipStep}:forward`];
+      const m = {
+        id,
+        dir,
+        from,
+        to,
+        clip,
+        seekReverse: dir < 0 && !reverseClip,
+        rate: 1,
+        started: false,
+        stop: null,
+        fraction: startFraction || 0,
+      };
+      motion = m;
+      restReady = false;
+      updateMotionRate();
+
+      loadClip(clip).then(function (ok) {
+        if (!motion || motion.id !== id) return;
+        if (!ok) {
+          finishMotion(id, false);
+          return;
+        }
+        preloadAround(to);
+        waitForVideoBuffer(clip.video, {
+          bufferFraction: 1,
+          strict: true,
+          maxWaitMs: CONFIG.storyStartBufferMs,
+        }).then(function () {
+          if (!motion || motion.id !== id) return;
+          if (m.seekReverse) runSeekReverse(m);
+          else runPlayback(m);
+        });
+      });
+    }
+
+    // Reverses the clip in flight from the mirrored position.
+    function flipMotion() {
+      const m = motion;
+      const fraction = currentFraction(m);
+      const started = m.started;
+      cancelMotion();
+      if (!started) {
+        opId += 1;
+        reconcile();
+        return;
+      }
+      step = m.to;
+      startMotion(-m.dir, 1 - fraction);
+    }
+
+    function reconcile() {
+      if (!active) return;
+      target = computeTarget();
+      if (motion) {
+        const heading =
+          motion.dir > 0 ? target >= motion.to : target <= motion.to;
+        if (heading) updateMotionRate();
+        else flipMotion();
+        return;
+      }
+      if (target > step) {
+        startMotion(1, 0);
+        return;
+      }
+      if (target < step) {
+        startMotion(-1, 0);
+        return;
+      }
+      ensureRest();
+    }
+
+    const stepStart = responsiveValue(
+      CONFIG.storyStepStart,
+      CONFIG.mobile.storyStepStart,
+    );
+
+    // ScrollTrigger can fire callbacks while a trigger is being created, so
+    // they're ignored until every trigger below exists.
+    let initialized = false;
+
+    // Active while the story layer can be on screen: from the start of its
+    // wipe until the section has scrolled away.
+    const activation = ScrollTrigger.create({
+      trigger: aboutTitle || section,
+      start: aboutTitle ? "bottom top" : "top bottom",
+      endTrigger: section,
       end: "bottom top",
-
       onEnter: function () {
-        sectionActive = true;
-        lifecycleId += 1;
-        if (desired < 1) desired = 1;
-        processStory();
+        if (initialized) activate();
       },
-
       onEnterBack: function () {
-        resumeStory();
+        if (initialized) activate();
       },
-
       onLeave: function () {
-        deactivateStory();
+        if (initialized) deactivate(3);
       },
-
       onLeaveBack: function () {
-        deactivateStory();
+        if (initialized) deactivate(0);
+      },
+      // Belt and braces for the row callbacks: a missed one (e.g. a throttled
+      // fling) is corrected on the next scroll update.
+      onUpdate: function () {
+        if (initialized && active) updateTarget();
+      },
+    });
+
+    const stepTriggers = rows
+      .filter(function (row) {
+        return parseInt(row.getAttribute("data-story-step"), 10) > 1;
+      })
+      .map(function (row) {
+        return ScrollTrigger.create({
+          trigger: row,
+          start: stepStart,
+          onEnter: updateTarget,
+          onLeaveBack: updateTarget,
+        });
+      });
+
+    function computeTarget() {
+      const scroll = activation.scroll();
+      if (scroll < activation.start) return 0;
+      let value = 1;
+      stepTriggers.forEach(function (trigger) {
+        if (scroll >= trigger.start) value += 1;
+      });
+      return Math.min(3, value);
+    }
+
+    function updateTarget() {
+      if (!initialized) return;
+      const next = computeTarget();
+      if (next === target) return;
+      target = next;
+      reconcile();
+    }
+
+    function prepare() {
+      if (!active && !restReady) presentStepFrame(step, 0);
+      preloadAround(step);
+    }
+
+    // Deferred a frame: a fast scroll that jumps straight through the section
+    // fires enter and leave together, and shouldn't start any downloads.
+    function activate() {
+      if (active) return;
+      active = true;
+      const id = ++opId;
+      requestAnimationFrame(function () {
+        if (!active || id !== opId) return;
+        target = computeTarget();
+        prepare();
+        reconcile();
+      });
+    }
+
+    function deactivate(edgeStep) {
+      active = false;
+      opId += 1;
+      cancelMotion();
+      clipList.forEach(function (clip) {
+        if (clip.video) clip.video.pause();
+      });
+      target = edgeStep;
+      if (step !== edgeStep) {
+        step = edgeStep;
+        restReady = false;
+        // Only swap frames for clips already in memory; anything else is
+        // prepared when the visitor heads back this way.
+        const edgeClip =
+          edgeStep <= 0
+            ? clips["1:forward"]
+            : clips[`${edgeStep}:rest`] || clips[`${edgeStep}:forward`];
+        if (edgeClip && edgeClip.ready) presentStepFrame(edgeStep, 0);
+      }
+    }
+
+    initialized = true;
+    if (activation.isActive) {
+      activate();
+    } else if (activation.scroll() > activation.end) {
+      // Page loaded below the story: start parked at the last step.
+      step = 3;
+      target = 3;
+    }
+
+    ScrollTrigger.create({
+      trigger: section,
+      start: CONFIG.prepareStart,
+      end: "bottom -100%",
+      onEnter: function () {
+        heroGate.then(prepare);
+      },
+      onEnterBack: function () {
+        heroGate.then(prepare);
       },
     });
 
     return {
-      release: deactivateStory,
-      resume: resumeStory,
+      suspend: function () {
+        if (!active) return;
+        opId += 1;
+        if (motion) {
+          const m = motion;
+          const fraction = currentFraction(m);
+          cancelMotion();
+          step = m.started && fraction >= 0.5 ? m.to : m.from;
+        }
+        restReady = false;
+        clipList.forEach(function (clip) {
+          if (clip.video) clip.video.pause();
+        });
+      },
+      resume: function () {
+        if (!active) return;
+        target = computeTarget();
+        reconcile();
+      },
+      // Frees the decoders on WebKit once the story is two sections away.
+      release: function () {
+        if (!isWebKit || active) return;
+        opId += 1;
+        cancelMotion();
+        clipList.forEach(function (clip) {
+          if (!clip.video || !clip.ready) return;
+          unloadVideo(clip.video);
+          clip.ready = null;
+          gsap.set(clip.video, { opacity: 0, visibility: "hidden", zIndex: 1 });
+        });
+        shown = null;
+        restReady = false;
+        setFallbacksVisible(true);
+      },
     };
   }
 
@@ -1891,12 +2268,107 @@ function initNumenosMedia() {
     });
   }
 
+  // A canvas laid over a video that can hold the current picture while the
+  // video seeks underneath, then fade away: a smooth crossfade between any
+  // two frames regardless of how long the seek takes.
+  function createFreezeFrame(video, backgroundColor) {
+    if (!video || !video.parentNode) return null;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) return null;
+    const videoStyle = getComputedStyle(video);
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.style.cssText = [
+      "position:absolute",
+      "inset:0",
+      "width:100%",
+      "height:100%",
+      `object-fit:${videoStyle.objectFit || "cover"}`,
+      `object-position:${videoStyle.objectPosition || "50% 50%"}`,
+      "pointer-events:none",
+    ].join(";");
+    video.parentNode.insertBefore(canvas, video.nextSibling);
+    gsap.set(canvas, { opacity: 0, visibility: "hidden" });
+    let visible = false;
+
+    // Paints exactly what is on screen right now (background, video at its
+    // current opacity, and any freeze-frame still fading out) into the
+    // canvas, then shows the canvas fully opaque on top.
+    function hold() {
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (
+        !width ||
+        !height ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      )
+        return false;
+      const scale = Math.min(
+        1,
+        CONFIG.freezeFrameMaxSide / Math.max(width, height),
+      );
+      const canvasWidth = Math.round(width * scale);
+      const canvasHeight = Math.round(height * scale);
+      let canvasOpacity = visible ? +gsap.getProperty(canvas, "opacity") : 0;
+      if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        canvasOpacity = 0;
+      }
+      const videoOpacity = +gsap.getProperty(video, "opacity");
+      const videoAlpha = (1 - canvasOpacity) * videoOpacity;
+      const backgroundAlpha =
+        canvasOpacity > 0 ? 1 - canvasOpacity / (1 - videoAlpha) : 1;
+      gsap.killTweensOf(canvas);
+      try {
+        context.globalAlpha = gsap.utils.clamp(0, 1, backgroundAlpha);
+        context.fillStyle = backgroundColor;
+        context.fillRect(0, 0, canvasWidth, canvasHeight);
+        if (videoAlpha > 0) {
+          context.globalAlpha = gsap.utils.clamp(0, 1, videoAlpha);
+          context.drawImage(video, 0, 0, canvasWidth, canvasHeight);
+        }
+        context.globalAlpha = 1;
+      } catch (error) {
+        context.globalAlpha = 1;
+        return false;
+      }
+      visible = true;
+      gsap.set(canvas, { visibility: "inherit", opacity: 1 });
+      return true;
+    }
+
+    function release(duration) {
+      if (!visible) return;
+      gsap.to(canvas, {
+        opacity: 0,
+        duration: duration || 0,
+        ease: "power1.inOut",
+        overwrite: true,
+        onComplete: function () {
+          visible = false;
+          gsap.set(canvas, { visibility: "hidden" });
+        },
+      });
+    }
+
+    return { hold, release };
+  }
+
+  // C-layers (rocks). Phases follow the scroll position:
+  //   intro       – intro copy on screen, video parked on frame 0 at 40%
+  //   opening     – copy has gone, the video plays 0 → 2s on its own
+  //   interactive – map + dots live; hovering crossfades to each layer's frame
+  //   closing     – past the close point, the video plays 12.5s → end
+  //   closed      – parked on the last frame
   function initCLayers(handles) {
     const insights = getSectionByRole("insights");
     const cLayers = getSectionByRole("c-layers");
-    const insightsMedia = getSectionMedia(insights);
     const cLayersMedia = getSectionMedia(cLayers);
     if (!cLayers || !cLayersMedia) return;
+
+    // Solid backdrop so the 40% intro video never shows Insights through it.
+    cLayersMedia.item.style.backgroundColor = CONFIG.cLayersBackground;
 
     const map = cLayers.querySelector("[data-layer-map]");
     const introTrack = cLayers.querySelector("[data-c-layers-intro]");
@@ -1934,6 +2406,11 @@ function initNumenosMedia() {
       interactionTrack.style.minHeight = `${CONFIG.cLayersInteractionTrackVh}svh`;
     }
 
+    const closeRatio = responsiveValue(
+      CONFIG.cLayersCloseViewportRatio,
+      CONFIG.mobile.cLayersCloseViewportRatio,
+    );
+
     const panelMap = {
       infrastructure: rows[0],
       memory: rows[1],
@@ -1966,13 +2443,20 @@ function initNumenosMedia() {
     map.setAttribute("aria-hidden", "true");
     gsap.set(cLayersMedia.video, { opacity: CONFIG.cLayersIntroOpacity });
 
+    const freeze = createFreezeFrame(
+      cLayersMedia.video,
+      CONFIG.cLayersBackground,
+    );
+
     let activeLayer = null;
     let videoActionId = 0;
     let cLayersReadyPromise = null;
     let cancelSegmentPlayback = null;
-    let layerPhase = "intro";
+    let phase = "intro";
     let interactiveReady = false;
-    let layerPhaseId = 0;
+    let phaseId = 0;
+    // Scroll callbacks are ignored until the initial state has been set.
+    let layersInitialized = false;
 
     function setPanelAccessibility(row, active) {
       if (!row) return;
@@ -2058,6 +2542,14 @@ function initNumenosMedia() {
         control.disabled = !enabled;
         control.setAttribute("aria-disabled", enabled ? "false" : "true");
       });
+      // Disabled buttons swallow pointerenter, so a cursor already resting
+      // on a dot when the map goes live wouldn't register without this.
+      if (enabled && useHoverInteractions) {
+        const hovered = controls.find(function (control) {
+          return control.matches(":hover");
+        });
+        if (hovered) activateLayer(hovered.getAttribute("data-layer-control"));
+      }
     }
 
     function getCLayersSafeDuration() {
@@ -2078,10 +2570,7 @@ function initNumenosMedia() {
     }
 
     function getCLayersCloseStartTime() {
-      return Math.min(
-        CONFIG.cLayersCloseStartTime,
-        getCLayersSafeDuration(),
-      );
+      return Math.min(CONFIG.cLayersCloseStartTime, getCLayersSafeDuration());
     }
 
     function getCLayersCloseEndTime() {
@@ -2099,43 +2588,6 @@ function initNumenosMedia() {
       return videoActionId;
     }
 
-    function waitForCLayersFrame(video, actionId) {
-      return new Promise(function (resolve) {
-        if (!video || actionId !== videoActionId) {
-          resolve(false);
-          return;
-        }
-
-        let settled = false;
-        let frameCallbackId = null;
-        const timeoutId = setTimeout(finish, isWebKit ? 600 : 350);
-
-        function finish() {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          if (
-            frameCallbackId !== null &&
-            typeof video.cancelVideoFrameCallback === "function"
-          ) {
-            try {
-              video.cancelVideoFrameCallback(frameCallbackId);
-            } catch (error) {}
-          }
-          resolve(actionId === videoActionId);
-        }
-
-        if (typeof video.requestVideoFrameCallback === "function") {
-          frameCallbackId = video.requestVideoFrameCallback(finish);
-          return;
-        }
-
-        requestAnimationFrame(function () {
-          requestAnimationFrame(finish);
-        });
-      });
-    }
-
     function seekCLayersFrame(video, targetTime, actionId) {
       if (!video || actionId !== videoActionId) return Promise.resolve(false);
 
@@ -2146,29 +2598,14 @@ function initNumenosMedia() {
       video.playbackRate = 1;
 
       if (
+        !video.seeking &&
         Math.abs(video.currentTime - target) <= CONFIG.cLayersTargetTolerance
       ) {
         return Promise.resolve(true);
       }
 
-      return new Promise(function (resolve) {
-        let settled = false;
-        const timeoutId = setTimeout(finish, isWebKit ? 700 : 450);
-
-        function finish() {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timeoutId);
-          video.removeEventListener("seeked", finish);
-          waitForCLayersFrame(video, actionId).then(resolve);
-        }
-
-        video.addEventListener("seeked", finish, { once: true });
-        try {
-          video.currentTime = target;
-        } catch (error) {
-          finish();
-        }
+      return presentFrame(video, target).then(function () {
+        return actionId === videoActionId;
       });
     }
 
@@ -2178,10 +2615,13 @@ function initNumenosMedia() {
         cLayersMedia,
         Object.assign({}, CONFIG.cLayersBuffer, {
           hidePosters: true,
-          revealOpacity: CONFIG.cLayersIntroOpacity,
+          revealOpacity: phase === "intro" ? CONFIG.cLayersIntroOpacity : 1,
         }),
       ).then(function (ready) {
-        if (!ready || !cLayersMedia.video) return false;
+        if (!ready || !cLayersMedia.video) {
+          cLayersReadyPromise = null;
+          return false;
+        }
         const video = cLayersMedia.video;
         video.pause();
         video.loop = false;
@@ -2191,26 +2631,34 @@ function initNumenosMedia() {
       return cLayersReadyPromise;
     }
 
-    function snapCLayersToTime(targetTime, options) {
+    // Crossfades from whatever is on screen to the frame at `time`.
+    function transitionTo(time, options) {
       options = options || {};
       const actionId = beginVideoAction();
       return prepareCLayersVideo().then(function (ready) {
         if (!ready || actionId !== videoActionId) return false;
         const video = cLayersMedia.video;
-        if (!video) return false;
-        const resolvedTarget =
-          typeof targetTime === "function" ? targetTime() : targetTime;
-        gsap.killTweensOf(video);
-        gsap.set(video, {
-          opacity: options.opacity != null ? options.opacity : 1,
-        });
-        return seekCLayersFrame(video, resolvedTarget, actionId);
-      });
-    }
-
-    function snapCLayersVideo(progress) {
-      return snapCLayersToTime(function () {
-        return getCLayersTargetTime(progress);
+        const resolvedTime = typeof time === "function" ? time() : time;
+        const frozen = freeze ? freeze.hold() : false;
+        return seekCLayersFrame(video, resolvedTime, actionId).then(
+          function (ok) {
+            if (actionId !== videoActionId) return false;
+            gsap.killTweensOf(video);
+            gsap.set(video, {
+              opacity: options.opacity != null ? options.opacity : 1,
+            });
+            if (freeze) {
+              freeze.release(
+                frozen
+                  ? options.fade != null
+                    ? options.fade
+                    : CONFIG.cLayersStateFade
+                  : 0,
+              );
+            }
+            return ok;
+          },
+        );
       });
     }
 
@@ -2227,13 +2675,11 @@ function initNumenosMedia() {
           typeof startTime === "function" ? startTime() : startTime;
         const resolvedTarget =
           typeof targetTime === "function" ? targetTime() : targetTime;
-        const atStart = await seekCLayersFrame(
-          video,
-          resolvedStart,
-          actionId,
-        );
+        const frozen = options.freeze && freeze ? freeze.hold() : false;
+        const atStart = await seekCLayersFrame(video, resolvedStart, actionId);
         if (!atStart || actionId !== videoActionId) return false;
 
+        if (freeze) freeze.release(frozen ? CONFIG.cLayersStateFade : 0.2);
         gsap.to(video, {
           opacity: options.opacity != null ? options.opacity : 1,
           duration:
@@ -2321,26 +2767,8 @@ function initNumenosMedia() {
       });
     }
 
-    function playCLayersOpening() {
-      return playCLayersSegment(0, getCLayersOpenTime, {
-        opacity: 1,
-        fadeDuration: CONFIG.cLayersOpenFadeDuration,
-      });
-    }
-
-    function playCLayersClosing() {
-      return playCLayersSegment(
-        getCLayersCloseStartTime,
-        getCLayersCloseEndTime,
-        {
-          opacity: 1,
-          fadeDuration: 0,
-        },
-      );
-    }
-
-    async function activateLayer(key) {
-      if (!interactiveReady) return;
+    function activateLayer(key) {
+      if (!interactiveReady || phase !== "interactive") return;
       if (!key || !panelMap[key] || CONFIG.cLayersTargets[key] === undefined)
         return;
       if (activeLayer === key) return;
@@ -2350,43 +2778,57 @@ function initNumenosMedia() {
         hidePanel(panelMap[previousLayer]);
       updateControls(key);
       hidePanel(panelMap[key], true);
-      const frameReady = await snapCLayersVideo(CONFIG.cLayersTargets[key]);
-      if (!frameReady || !interactiveReady || activeLayer !== key) return;
-      showPanel(panelMap[key]);
+      transitionTo(function () {
+        return getCLayersTargetTime(CONFIG.cLayersTargets[key]);
+      }).then(function () {
+        if (!interactiveReady || activeLayer !== key) return;
+        showPanel(panelMap[key]);
+      });
     }
 
     function resetLayers(options) {
       options = options || {};
+      const hadActiveLayer = activeLayer !== null;
       activeLayer = null;
       updateControls(null);
       Object.values(panelMap).forEach(function (row) {
         hidePanel(row, options.immediate === true);
       });
-      if (options.resetVideo && layerPhase === "interactive") {
-        snapCLayersToTime(getCLayersOpenTime);
+      if (options.resetVideo && hadActiveLayer && phase === "interactive") {
+        transitionTo(getCLayersOpenTime);
       }
     }
 
-    function isInInteractiveRange() {
-      const sectionRect = cLayers.getBoundingClientRect();
-      const closeBoundary =
-        getViewportHeight() *
-        responsiveValue(
-          CONFIG.cLayersCloseViewportRatio,
-          CONFIG.mobile.cLayersCloseViewportRatio,
-        );
-      return (
-        introCopy.getBoundingClientRect().bottom <= 2 &&
-        sectionRect.top < getViewportHeight() &&
-        sectionRect.bottom > closeBoundary
-      );
+    const introPass = ScrollTrigger.create({
+      trigger: introCopy,
+      start: "bottom 2px",
+      onEnter: reconcileLayers,
+      onLeaveBack: reconcileLayers,
+      invalidateOnRefresh: true,
+    });
+
+    const closePoint = ScrollTrigger.create({
+      trigger: cLayers,
+      start: function () {
+        return `bottom ${closeRatio * 100}%`;
+      },
+      onEnter: reconcileLayers,
+      onLeaveBack: reconcileLayers,
+      invalidateOnRefresh: true,
+    });
+
+    function getZone() {
+      const scroll = introPass.scroll();
+      if (scroll < introPass.start) return "intro";
+      if (scroll < closePoint.start) return "interactive";
+      return "closed";
     }
 
     function showLayerMap() {
       if (
         !interactiveReady ||
-        layerPhase !== "interactive" ||
-        !isInInteractiveRange()
+        phase !== "interactive" ||
+        getZone() !== "interactive"
       ) {
         return;
       }
@@ -2416,103 +2858,80 @@ function initNumenosMedia() {
 
     function enterIntroPhase(options) {
       options = options || {};
-      layerPhaseId += 1;
-      layerPhase = "intro";
+      const wasIntro = phase === "intro";
+      phaseId += 1;
+      phase = "intro";
       setControlsEnabled(false);
       hideLayerMap(options.immediate === true);
       resetLayers({ immediate: true });
-      if (options.seek !== false) {
-        snapCLayersToTime(0, { opacity: CONFIG.cLayersIntroOpacity });
-      }
-    }
-
-    function finishInteractivePhase(opened, phaseId) {
-      if (phaseId !== layerPhaseId) return;
-      if (!opened || layerPhase !== "opening") return;
-      if (!isInInteractiveRange()) {
-        startClosingPhase();
-        return;
-      }
-      layerPhase = "interactive";
-      setControlsEnabled(true);
-      showLayerMap();
-    }
-
-    function startOpeningPhase() {
-      if (!isInInteractiveRange()) return;
-      if (layerPhase === "opening" || layerPhase === "interactive") return;
-      layerPhase = "opening";
-      setControlsEnabled(false);
-      hideLayerMap();
-      resetLayers({ immediate: true });
-      const phaseId = ++layerPhaseId;
-      playCLayersOpening().then(function (opened) {
-        finishInteractivePhase(opened, phaseId);
+      if (options.seek === false) return;
+      transitionTo(0, {
+        opacity: CONFIG.cLayersIntroOpacity,
+        fade: wasIntro ? 0 : CONFIG.cLayersStateFade,
       });
     }
 
-    function restoreInteractivePhase() {
-      if (introCopy.getBoundingClientRect().bottom > 0) {
-        enterIntroPhase();
-        return;
-      }
-      if (!isInInteractiveRange()) {
-        startClosingPhase();
-        return;
-      }
-      if (layerPhase === "interactive" && interactiveReady) {
-        showLayerMap();
-        return;
-      }
-      if (layerPhase === "opening") return;
-      layerPhase = "opening";
+    function startOpeningPhase() {
+      const fromIntro = phase === "intro";
+      const id = ++phaseId;
+      phase = "opening";
       setControlsEnabled(false);
-      hideLayerMap(true);
+      hideLayerMap(false);
       resetLayers({ immediate: true });
-      const phaseId = ++layerPhaseId;
-      playCLayersOpening().then(function (opened) {
-        finishInteractivePhase(opened, phaseId);
+      playCLayersSegment(0, getCLayersOpenTime, {
+        opacity: 1,
+        fadeDuration: CONFIG.cLayersOpenFadeDuration,
+        freeze: !fromIntro,
+      }).then(function () {
+        if (id !== phaseId) return;
+        phase = "interactive";
+        setControlsEnabled(true);
+        reconcileLayers();
       });
     }
 
     function startClosingPhase() {
-      if (
-        layerPhase === "closing" ||
-        layerPhase === "closed" ||
-        layerPhase === "exited"
-      ) {
-        return;
-      }
-
-      if (layerPhase === "intro") {
-        forceExitedPhase({ immediate: true });
-        return;
-      }
-
-      const phaseId = ++layerPhaseId;
-      layerPhase = "closing";
+      const id = ++phaseId;
+      phase = "closing";
       setControlsEnabled(false);
+      hideLayerMap(false);
       resetLayers({ immediate: false });
-
-      playCLayersClosing().then(function (closed) {
-        if (phaseId !== layerPhaseId) return;
-        if (!closed) {
-          forceExitedPhase({ immediate: true });
-          return;
-        }
-        layerPhase = "closed";
-        hideLayerMap(false);
+      playCLayersSegment(getCLayersCloseStartTime, getCLayersCloseEndTime, {
+        opacity: 1,
+        fadeDuration: 0,
+        freeze: true,
+      }).then(function () {
+        if (id !== phaseId) return;
+        phase = "closed";
+        reconcileLayers();
       });
     }
 
-    function forceExitedPhase(options) {
-      options = options || {};
-      layerPhaseId += 1;
-      layerPhase = "exited";
+    // Scrolled straight past the whole interaction: land on the last frame.
+    function jumpToClosedPhase() {
+      phaseId += 1;
+      phase = "closed";
       setControlsEnabled(false);
-      hideLayerMap(options.immediate !== false);
+      hideLayerMap(true);
       resetLayers({ immediate: true });
-      snapCLayersToTime(getCLayersCloseEndTime, { opacity: 1 });
+      transitionTo(getCLayersCloseEndTime, { opacity: 1 });
+    }
+
+    function reconcileLayers() {
+      if (!layersInitialized) return;
+      const zone = getZone();
+      if (zone === "intro") {
+        if (phase !== "intro") enterIntroPhase();
+        return;
+      }
+      if (zone === "interactive") {
+        if (phase === "interactive") showLayerMap();
+        else if (phase !== "opening") startOpeningPhase();
+        return;
+      }
+      if (phase === "intro") jumpToClosedPhase();
+      else if (phase === "opening" || phase === "interactive")
+        startClosingPhase();
     }
 
     function handleOutsidePointerDown(event) {
@@ -2587,53 +3006,19 @@ function initNumenosMedia() {
     setControlsEnabled(false);
 
     if (insights) {
-      ScrollTrigger.create({
-        trigger: insights,
-        start: CONFIG.mediaRevealStart,
-        once: true,
-        onEnter: function () {
-          prepareMedia(cLayersMedia);
+      whenNear(
+        insights,
+        responsiveValue(
+          CONFIG.cLayersPreloadStart,
+          CONFIG.mobile.cLayersPreloadStart,
+        ),
+        function () {
+          prefetch(prepareCLayersVideo);
         },
-      });
+      );
     }
 
-    ScrollTrigger.create({
-      trigger: cLayers,
-      start: CONFIG.cLayersPrepareStart,
-      once: true,
-      onEnter: prepareCLayersVideo,
-    });
-
-    ScrollTrigger.create({
-      trigger: introCopy,
-      start: "bottom 1px",
-      onEnter: startOpeningPhase,
-      onLeaveBack: enterIntroPhase,
-      invalidateOnRefresh: true,
-    });
-
-    ScrollTrigger.create({
-      trigger: cLayers,
-      start: function () {
-        const ratio = responsiveValue(
-          CONFIG.cLayersCloseViewportRatio,
-          CONFIG.mobile.cLayersCloseViewportRatio,
-        );
-        return `bottom ${ratio * 100}%`;
-      },
-      onEnter: startClosingPhase,
-      onLeaveBack: restoreInteractivePhase,
-      invalidateOnRefresh: true,
-    });
-
-    ScrollTrigger.create({
-      trigger: cLayers,
-      start: "bottom 110%",
-      onEnter: function () {
-        forceExitedPhase({ immediate: true });
-      },
-      invalidateOnRefresh: true,
-    });
+    whenNear(cLayers, CONFIG.cLayersPrepareStart, prepareCLayersVideo);
 
     ScrollTrigger.create({
       trigger: cLayers,
@@ -2642,39 +3027,22 @@ function initNumenosMedia() {
       onEnter: function () {
         prepareCLayersVideo();
         if (handles.insights) handles.insights.release();
+        if (handles.story) handles.story.release();
       },
       onEnterBack: function () {
         prepareCLayersVideo();
       },
-      onLeave: function () {
-        forceExitedPhase({ immediate: true });
-      },
-      onLeaveBack: function () {
-        enterIntroPhase();
-        if (handles.insights) handles.insights.activate();
-      },
     });
 
     requestAnimationFrame(function () {
-      const sectionRect = cLayers.getBoundingClientRect();
-      const introHasPassed = introCopy.getBoundingClientRect().bottom <= 2;
-      const beforeClose =
-        sectionRect.bottom >
-        getViewportHeight() *
-          responsiveValue(
-            CONFIG.cLayersCloseViewportRatio,
-            CONFIG.mobile.cLayersCloseViewportRatio,
-          );
-
-      if (sectionRect.top >= getViewportHeight()) {
-        enterIntroPhase({ immediate: true, seek: false });
-      } else if (introHasPassed && beforeClose) {
-        restoreInteractivePhase();
-      } else if (!beforeClose) {
-        forceExitedPhase({ immediate: true });
-      } else {
-        enterIntroPhase({ immediate: true });
+      layersInitialized = true;
+      if (getZone() === "intro") {
+        const sectionIsNear =
+          cLayers.getBoundingClientRect().top < getViewportHeight();
+        enterIntroPhase({ immediate: true, seek: sectionIsNear });
+        return;
       }
+      reconcileLayers();
     });
   }
 
@@ -2684,7 +3052,7 @@ function initNumenosMedia() {
         activeMedia.forEach(function (media) {
           if (media.video) media.video.pause();
         });
-        if (handles.story) handles.story.release();
+        if (handles.story) handles.story.suspend();
         return;
       }
       activeMedia.forEach(function (media) {
@@ -2769,33 +3137,59 @@ function initNumenosMedia() {
 
   buildMediaMap();
   initLayoutStability();
+  watchHeroGate();
 
   const handles = {};
 
   try {
+    initSectionGaps();
+  } catch (error) {
+    reportError("section gaps", error);
+  }
+  try {
     initContentFades();
   } catch (error) {
+    reportError("content fades", error);
     gsap.set(getContentTargets(), { clearProps: "opacity,filter" });
   }
   try {
     initReveals();
-  } catch (error) {}
+  } catch (error) {
+    reportError("reveals", error);
+  }
   try {
     initHero();
+  } catch (error) {
+    reportError("hero", error);
+    openHeroGate();
+  }
+  try {
     handles.about = createLoopingPlayback("about", activateFadeLoop);
     handles.insights = createLoopingPlayback("insights", activateFadeLoop, {
-      start: "top top",
+      // Starts once the Insights background has fully wiped in; until then
+      // the wipe shows the paused first frame.
+      start: responsiveValue(
+        CONFIG.insightsRevealEnd,
+        CONFIG.mobile.insightsRevealEnd,
+      ),
       holdAtStart: true,
+      holdVisible: true,
       restartOnActivate: true,
-      resetOnDeactivate: true,
+      resetOnLeaveBack: true,
     });
-  } catch (error) {}
+  } catch (error) {
+    reportError("looping playback", error);
+  }
   try {
-    handles.story = initStory(handles);
-  } catch (error) {}
+    handles.story = initStory();
+  } catch (error) {
+    reportError("story", error);
+  }
   try {
     initCLayers(handles);
-  } catch (error) {}
+  } catch (error) {
+    reportError("c-layers", error);
+  }
 
   initVisibilityHandling(handles);
   refresh();
@@ -2816,4 +3210,4 @@ function initNumenosMedia() {
 
 document.addEventListener("DOMContentLoaded", initNumenosMedia);
 
-console.log("now working");
+// console.log("now working");
