@@ -53,15 +53,10 @@ function initNumenosMedia() {
     mediaRevealEnd: "top 5%",
     mediaRevealScrub: 0.55,
 
-    aboutRevealStart: "top 98%",
-    aboutRevealEnd: "top 55%",
-
-    storyRevealDistanceVh: 35,
-    storyRevealScrub: 0.55,
-
-    insightsRevealStart: "top 100%",
-    insightsRevealEnd: "top 55%",
-    insightsRevealScrub: 0.6,
+    // Hero → About, About → Story and Story → Insights: the wipe starts once
+    // the outgoing copy has fully left the top of the screen, and runs over
+    // this much scroll.
+    contentWipeVh: 35,
 
     cLayersRevealDistanceVh: 45,
     cLayersRevealScrub: 0.8,
@@ -74,8 +69,15 @@ function initNumenosMedia() {
     cLayersIntroTrackVh: 180,
     cLayersIntroLeadVh: 125,
     cLayersInteractionTrackVh: 320,
+    // Rocks video timeline (both encodes): shut until 0.42s, apart by 1s,
+    // settled open at 2s. The final close runs 15.04s → 15.5s; 15.04s is the
+    // open resting frame again, so nothing before it may be played on close
+    // (12.9s–14.6s is the Application highlight).
+    cLayersOpenMotionStart: 0.42,
+    cLayersOpenMotionEnd: 1,
     cLayersOpenTime: 2,
-    cLayersCloseStartTime: 12.5,
+    cLayersCloseStartTime: 15.04,
+    cLayersCloseMotionEnd: 15.5,
     cLayersOpenFadeDuration: 0.45,
     cLayersMapFadeDuration: 0.45,
     cLayersStateFade: 0.32,
@@ -95,6 +97,11 @@ function initNumenosMedia() {
       bufferSeconds: 2.5,
       maxWaitMs: 5000,
     },
+    // Hovers and scroll reversals jump all over the rocks video, so a file
+    // this size or smaller is downloaded whole and every seek stays local.
+    // Anything larger (or slower than the timeout) streams as usual.
+    cLayersWholeFileMaxBytes: 8 * 1024 * 1024,
+    cLayersWholeFileTimeoutMs: 15000,
     freezeFrameMaxSide: 1280,
 
     staticRevealStart: "top 75%",
@@ -114,7 +121,6 @@ function initNumenosMedia() {
     storyStartBufferMs: 3000,
     storyStallTimeoutMs: 3000,
     storyIntroGapVh: 40,
-    storyFinalTailVh: 117,
 
     viewportFadeScrub: 0.28,
     viewportFadeBlur: 4,
@@ -129,10 +135,6 @@ function initNumenosMedia() {
 
     mobile: {
       playbackBandStart: "top 110%",
-      aboutRevealStart: "top 78%",
-      aboutRevealEnd: "top 38%",
-      insightsRevealStart: "top 78%",
-      insightsRevealEnd: "top 38%",
       staticRevealStart: "top 60%",
       staticRevealEnd: "top 15%",
       mediaRevealScrub: 0.18,
@@ -533,6 +535,41 @@ function initNumenosMedia() {
     });
   }
 
+  // Resolves a blob URL for the whole file, or the original URL to stream
+  // when the file is too large, the request fails or it runs past the timeout.
+  function fetchWholeVideo(url, maxBytes, timeoutMs) {
+    if (
+      typeof fetch !== "function" ||
+      typeof AbortController !== "function" ||
+      typeof URL.createObjectURL !== "function"
+    )
+      return Promise.resolve(url);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(function () {
+      controller.abort();
+    }, timeoutMs);
+    return fetch(url, { signal: controller.signal, credentials: "omit" })
+      .then(function (response) {
+        const size = parseInt(response.headers.get("content-length"), 10);
+        if (!response.ok || !(size > 0) || size > maxBytes)
+          throw new Error("stream");
+        return response.blob();
+      })
+      .then(function (blob) {
+        clearTimeout(timeoutId);
+        return URL.createObjectURL(
+          blob.type === "video/mp4"
+            ? blob
+            : new Blob([blob], { type: "video/mp4" }),
+        );
+      })
+      .catch(function () {
+        clearTimeout(timeoutId);
+        controller.abort();
+        return url;
+      });
+  }
+
   function unloadVideo(video) {
     video.pause();
     video.removeAttribute("src");
@@ -553,8 +590,15 @@ function initNumenosMedia() {
     if (!url) return Promise.resolve(false);
 
     const loadVersion = media.loadVersion;
+    const source = media.resolveSource
+      ? media.resolveSource(url)
+      : Promise.resolve(url);
 
-    media.loadingPromise = loadVideo(media.video, url)
+    media.loadingPromise = source
+      .then(function (resolvedUrl) {
+        if (loadVersion !== media.loadVersion) return false;
+        return loadVideo(media.video, resolvedUrl);
+      })
       .then(function (ready) {
         if (loadVersion !== media.loadVersion) return false;
         media.loaded = ready;
@@ -781,10 +825,6 @@ function initNumenosMedia() {
 
     if (story) {
       story.style.setProperty(
-        "--story-final-tail",
-        `${CONFIG.storyFinalTailVh}svh`,
-      );
-      story.style.setProperty(
         "--story-intro-gap",
         `${CONFIG.storyIntroGapVh}svh`,
       );
@@ -799,52 +839,27 @@ function initNumenosMedia() {
       return;
     }
 
-    if (about && aboutMedia && heroMedia) {
-      createStackedReveal(about, aboutMedia, heroMedia, {
-        start: responsiveValue(
-          CONFIG.aboutRevealStart,
-          CONFIG.mobile.aboutRevealStart,
-        ),
-        end: responsiveValue(
-          CONFIG.aboutRevealEnd,
-          CONFIG.mobile.aboutRevealEnd,
-        ),
+    function revealAfterCopy(copy, section, incoming, outgoing) {
+      createStackedReveal(copy || section, incoming, outgoing, {
+        start: copy ? "bottom top" : CONFIG.mediaRevealStart,
+        end: copy
+          ? function () {
+              return `+=${getContentWipeDistance()}`;
+            }
+          : CONFIG.mediaRevealEnd,
       });
+    }
+
+    if (about && aboutMedia && heroMedia) {
+      revealAfterCopy(getHeroCopy(), about, aboutMedia, heroMedia);
     }
 
     if (story && storyMedia && aboutMedia) {
-      const aboutTitle = about
-        ? about.querySelector("[data-about-title]")
-        : null;
-      createStackedReveal(aboutTitle || story, storyMedia, aboutMedia, {
-        start: aboutTitle ? "bottom top" : CONFIG.mediaRevealStart,
-        end: aboutTitle
-          ? function () {
-              return `+=${Math.round((getViewportHeight() * CONFIG.storyRevealDistanceVh) / 100)}`;
-            }
-          : CONFIG.mediaRevealEnd,
-        scrub: responsiveValue(
-          CONFIG.storyRevealScrub,
-          CONFIG.mobile.mediaRevealScrub,
-        ),
-      });
+      revealAfterCopy(getAboutCopy(), story, storyMedia, aboutMedia);
     }
 
     if (insights && insightsMedia && storyMedia) {
-      createStackedReveal(insights, insightsMedia, storyMedia, {
-        start: responsiveValue(
-          CONFIG.insightsRevealStart,
-          CONFIG.mobile.insightsRevealStart,
-        ),
-        end: responsiveValue(
-          CONFIG.insightsRevealEnd,
-          CONFIG.mobile.insightsRevealEnd,
-        ),
-        scrub: responsiveValue(
-          CONFIG.insightsRevealScrub,
-          CONFIG.mobile.mediaRevealScrub,
-        ),
-      });
+      revealAfterCopy(getStoryFinalCopy(), insights, insightsMedia, storyMedia);
     }
 
     if (cLayers && cLayersMedia && insightsMedia) {
@@ -889,6 +904,60 @@ function initNumenosMedia() {
       document.querySelectorAll(".section_team .team_card"),
     );
     return teamCards[teamCards.length - 1] || null;
+  }
+
+  function getLowestElement(elements) {
+    let lowest = null;
+    let lowestBottom = -Infinity;
+    elements.forEach(function (el) {
+      if (!el || !el.getClientRects().length) return;
+      const bottom = el.getBoundingClientRect().bottom;
+      if (bottom > lowestBottom) {
+        lowest = el;
+        lowestBottom = bottom;
+      }
+    });
+    return lowest;
+  }
+
+  function getHeroCopy() {
+    const hero = getSectionByRole("hero");
+    if (!hero) return null;
+    return getLowestElement([
+      hero.querySelector(".hero_heading"),
+      hero.querySelector(".hero_subtext"),
+    ]);
+  }
+
+  function getAboutCopy() {
+    const about = getSectionByRole("about");
+    return about ? about.querySelector("[data-about-title]") : null;
+  }
+
+  function getStoryFinalCopy() {
+    const story = getSectionByRole("story");
+    if (!story) return null;
+    const rows = story.querySelectorAll("[data-story-row]");
+    const lastRow = rows[rows.length - 1];
+    if (!lastRow) return null;
+    return getLowestElement(
+      Array.from(
+        lastRow.querySelectorAll(
+          "[data-story-eyebrow], [data-story-title], [data-story-subtext]",
+        ),
+      ),
+    );
+  }
+
+  function getInsightsCopy() {
+    const insights = getSectionByRole("insights");
+    return insights
+      ? insights.querySelector("[data-insights-content]") || insights
+      : null;
+  }
+
+  function getContentWipeDistance() {
+    return Math.round((getViewportHeight() * CONFIG.contentWipeVh) / 100);
   }
 
   function initStaticReveals(cLayersMedia) {
@@ -967,13 +1036,40 @@ function initNumenosMedia() {
     });
   }
 
-  // Holds the news and footer content back until the previous section's
-  // content has left the screen and the background wipe is underway.
+  // Holds each section's content back until the previous section's content
+  // has left the screen and the background wipe is underway.
   function initSectionGaps() {
     if (reducedMotion.matches) return;
+    const about = getSectionByRole("about");
+    const story = getSectionByRole("story");
     const news = document.querySelector(".section_news");
     const footer = document.querySelector(".c-footer");
     const gaps = [];
+
+    if (about) {
+      gaps.push({
+        section: about,
+        anchor: getHeroCopy,
+        content: getAboutCopy,
+        revealVh: CONFIG.contentWipeVh,
+        size: 0,
+      });
+    }
+
+    // Here the space is the story's own tail, so the step 3 loop keeps
+    // playing underneath until the Insights wipe covers it.
+    if (story && getSectionByRole("insights")) {
+      story.style.setProperty("--story-final-tail", "0px");
+      gaps.push({
+        anchor: getStoryFinalCopy,
+        content: getInsightsCopy,
+        revealVh: CONFIG.contentWipeVh,
+        size: 0,
+        apply: function (size) {
+          story.style.setProperty("--story-final-tail", `${size}px`);
+        },
+      });
+    }
 
     if (news) {
       gaps.push({
@@ -1031,7 +1127,8 @@ function initNumenosMedia() {
         const size = Math.max(0, Math.round(viewport + lead - naturalDistance));
         if (size === gap.size) return;
         gap.size = size;
-        gap.section.style.marginTop = `${size}px`;
+        if (gap.apply) gap.apply(size);
+        else gap.section.style.marginTop = `${size}px`;
       });
     }
 
@@ -1196,7 +1293,7 @@ function initNumenosMedia() {
     if (options.holdVisible) {
       ScrollTrigger.create({
         trigger: section,
-        start: "top bottom",
+        start: "top 150%",
         end: "bottom top",
         onEnter: function () {
           heroGate.then(function () {
@@ -1209,7 +1306,8 @@ function initNumenosMedia() {
     }
 
     ScrollTrigger.create({
-      trigger: section,
+      trigger: options.trigger || section,
+      endTrigger: section,
       start:
         options.start ||
         responsiveValue(
@@ -2359,8 +2457,10 @@ function initNumenosMedia() {
   //   intro       – intro copy on screen, video parked on frame 0 at 40%
   //   opening     – copy has gone, the video plays 0 → 2s on its own
   //   interactive – map + dots live; hovering crossfades to each layer's frame
-  //   closing     – past the close point, the video plays 12.5s → end
+  //   closing     – past the close point, the video plays its final close
   //   closed      – parked on the last frame
+  // Scrolling back up reverses this: the rocks reopen from closed, and close
+  // again (dimmed) when the intro copy returns.
   function initCLayers(handles) {
     const insights = getSectionByRole("insights");
     const cLayers = getSectionByRole("c-layers");
@@ -2369,6 +2469,18 @@ function initNumenosMedia() {
 
     // Solid backdrop so the 40% intro video never shows Insights through it.
     cLayersMedia.item.style.backgroundColor = CONFIG.cLayersBackground;
+
+    let wholeFile = null;
+    cLayersMedia.resolveSource = function (url) {
+      if (!wholeFile) {
+        wholeFile = fetchWholeVideo(
+          url,
+          CONFIG.cLayersWholeFileMaxBytes,
+          CONFIG.cLayersWholeFileTimeoutMs,
+        );
+      }
+      return wholeFile;
+    };
 
     const map = cLayers.querySelector("[data-layer-map]");
     const introTrack = cLayers.querySelector("[data-c-layers-intro]");
@@ -2575,6 +2687,51 @@ function initNumenosMedia() {
 
     function getCLayersCloseEndTime() {
       return getCLayersSafeDuration();
+    }
+
+    // How shut the rocks look at `time`: 0 apart, 1 closed.
+    function getClosedness(time) {
+      const closeStart = getCLayersCloseStartTime();
+      if (time >= closeStart) {
+        return gsap.utils.clamp(
+          0,
+          1,
+          (time - closeStart) /
+            (CONFIG.cLayersCloseMotionEnd - CONFIG.cLayersCloseStartTime),
+        );
+      }
+      if (time <= CONFIG.cLayersOpenMotionStart) return 1;
+      if (time >= CONFIG.cLayersOpenMotionEnd) return 0;
+      return (
+        1 -
+        (time - CONFIG.cLayersOpenMotionStart) /
+          (CONFIG.cLayersOpenMotionEnd - CONFIG.cLayersOpenMotionStart)
+      );
+    }
+
+    // A close or reopen that interrupts the other picks up from the frame
+    // that looks the same, instead of restarting from its first frame.
+    function getCloseFromTime() {
+      const closedness = getClosedness(cLayersMedia.video.currentTime);
+      return (
+        getCLayersCloseStartTime() +
+        closedness *
+          (CONFIG.cLayersCloseMotionEnd - CONFIG.cLayersCloseStartTime)
+      );
+    }
+
+    function getOpenFromTime(fromIntro) {
+      const closedness = getClosedness(cLayersMedia.video.currentTime);
+      // From the intro, the still opening frames cover the fade to full
+      // opacity; coming back up from below, the rocks start moving at once.
+      if (closedness >= 1)
+        return fromIntro ? 0 : CONFIG.cLayersOpenMotionStart;
+      if (closedness <= 0) return getCLayersOpenTime();
+      return (
+        CONFIG.cLayersOpenMotionStart +
+        (1 - closedness) *
+          (CONFIG.cLayersOpenMotionEnd - CONFIG.cLayersOpenMotionStart)
+      );
     }
 
     function stopSegmentPlayback() {
@@ -2865,9 +3022,14 @@ function initNumenosMedia() {
       hideLayerMap(options.immediate === true);
       resetLayers({ immediate: true });
       if (options.seek === false) return;
-      transitionTo(0, {
+      if (wasIntro) {
+        transitionTo(0, { opacity: CONFIG.cLayersIntroOpacity, fade: 0 });
+        return;
+      }
+      playCLayersSegment(getCloseFromTime, getCLayersCloseEndTime, {
         opacity: CONFIG.cLayersIntroOpacity,
-        fade: wasIntro ? 0 : CONFIG.cLayersStateFade,
+        fadeDuration: CONFIG.cLayersOpenFadeDuration,
+        freeze: true,
       });
     }
 
@@ -2878,11 +3040,17 @@ function initNumenosMedia() {
       setControlsEnabled(false);
       hideLayerMap(false);
       resetLayers({ immediate: true });
-      playCLayersSegment(0, getCLayersOpenTime, {
-        opacity: 1,
-        fadeDuration: CONFIG.cLayersOpenFadeDuration,
-        freeze: !fromIntro,
-      }).then(function () {
+      playCLayersSegment(
+        function () {
+          return getOpenFromTime(fromIntro);
+        },
+        getCLayersOpenTime,
+        {
+          opacity: 1,
+          fadeDuration: CONFIG.cLayersOpenFadeDuration,
+          freeze: true,
+        },
+      ).then(function () {
         if (id !== phaseId) return;
         phase = "interactive";
         setControlsEnabled(true);
@@ -2896,7 +3064,7 @@ function initNumenosMedia() {
       setControlsEnabled(false);
       hideLayerMap(false);
       resetLayers({ immediate: false });
-      playCLayersSegment(getCLayersCloseStartTime, getCLayersCloseEndTime, {
+      playCLayersSegment(getCloseFromTime, getCLayersCloseEndTime, {
         opacity: 1,
         fadeDuration: 0,
         freeze: true,
@@ -3165,13 +3333,16 @@ function initNumenosMedia() {
   }
   try {
     handles.about = createLoopingPlayback("about", activateFadeLoop);
+    const storyFinalCopy = getStoryFinalCopy();
     handles.insights = createLoopingPlayback("insights", activateFadeLoop, {
       // Starts once the Insights background has fully wiped in; until then
       // the wipe shows the paused first frame.
-      start: responsiveValue(
-        CONFIG.insightsRevealEnd,
-        CONFIG.mobile.insightsRevealEnd,
-      ),
+      trigger: storyFinalCopy,
+      start: storyFinalCopy
+        ? function () {
+            return `bottom top-=${getContentWipeDistance()}`;
+          }
+        : CONFIG.mediaRevealEnd,
       holdAtStart: true,
       holdVisible: true,
       restartOnActivate: true,
