@@ -1486,10 +1486,61 @@ function initNumenosMedia() {
 
     let activationId = 0;
     let shouldBeActive = false;
+    // `playOnce`: the animation runs a single time per visit; after that its
+    // last frame stays on screen whenever the section is.
+    let finished = false;
+
+    if (options.playOnce) {
+      media.video.addEventListener("ended", function () {
+        finished = true;
+        deactivateMedia(media);
+      });
+    }
+
+    function showLastFrame() {
+      activationId += 1;
+      const requestId = activationId;
+      const video = media.video;
+      deactivateMedia(media);
+      disableSmoothLoop(media);
+      video.loop = false;
+      if (!media.loaded) return;
+      const end = Math.max(0, video.duration - 0.02);
+      const atEnd = video.ended || Math.abs(video.currentTime - end) < 0.1;
+      (atEnd ? Promise.resolve() : seekTo(video, end)).then(function () {
+        if (requestId !== activationId) return;
+        media.revealed = true;
+        gsap.to(video, {
+          opacity: 1,
+          duration: 0.25,
+          ease: "power1.out",
+          overwrite: true,
+        });
+      });
+    }
+
+    function playOnce() {
+      if (finished) {
+        showLastFrame();
+        return;
+      }
+      media.active = true;
+      activeMedia.add(media);
+      disableSmoothLoop(media);
+      media.video.loop = false;
+      revealAndPlay(
+        media,
+        media.revealed ? CONFIG.loopFadeIn : CONFIG.revealDuration,
+      );
+    }
 
     // Parks the video on its first frame. With `holdVisible` that frame stays
     // on screen, so a wipe reveals the start of the animation, not the poster.
     function holdAtStart(keepVisible) {
+      if (finished) {
+        showLastFrame();
+        return;
+      }
       activationId += 1;
       const requestId = activationId;
       deactivateMedia(media);
@@ -1540,20 +1591,9 @@ function initNumenosMedia() {
         })
         .then(function (ready) {
           if (!ready || requestId !== activationId) return;
-          if (options.restartOnActivate) {
-            disableSmoothLoop(media);
-            media.video.pause();
-            media.video.loop = false;
-            try {
-              media.video.currentTime = 0;
-            } catch (error) {}
-            if (options.holdVisible) {
-              media.revealed = true;
-              gsap.set(media.video, { opacity: 1 });
-            } else {
-              media.revealed = false;
-              gsap.set(media.video, { opacity: 0 });
-            }
+          if (options.playOnce) {
+            playOnce();
+            return;
           }
           activate(media);
         });
@@ -3659,8 +3699,9 @@ function initNumenosMedia() {
     handles.about = createLoopingPlayback("about", activateFadeLoop);
     const storyFinalCopy = getStoryFinalCopy();
     handles.insights = createLoopingPlayback("insights", activateFadeLoop, {
-      // Starts once the Insights background has fully wiped in; until then
-      // the wipe shows the paused first frame.
+      // Draws in once the Insights background has fully wiped in (until then
+      // the wipe shows the paused first frame), then holds on the connected
+      // network instead of looping.
       trigger: storyFinalCopy,
       start: storyFinalCopy
         ? function () {
@@ -3669,7 +3710,7 @@ function initNumenosMedia() {
         : CONFIG.mediaRevealEnd,
       holdAtStart: true,
       holdVisible: true,
-      restartOnActivate: true,
+      playOnce: true,
       resetOnLeaveBack: true,
     });
   } catch (error) {
