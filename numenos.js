@@ -78,27 +78,27 @@ function initNumenosMedia() {
     cLayersIntroTrackVh: 180,
     cLayersIntroLeadVh: 125,
     cLayersInteractionTrackVh: 320,
-    // Rocks video timeline (both encodes, 24fps). Shut until 0.42s, apart by
-    // 1s, still drifting until 3.3s; frame 84 is the settled pose (the last
-    // frame of Val's "Part 5 start"). Every highlight holds that exact pose.
-    // The close runs from frame 358 (the first frame of "Part 5 end") to 15.5s.
-    // Times sit mid-frame so every browser lands on the intended frame.
-    cLayersOpenMotionStart: 0.42,
-    cLayersOpenMotionEnd: 1,
-    cLayersOpenTime: 3.52,
-    cLayersCloseStartTime: 14.93,
-    cLayersCloseMotionEnd: 15.5,
+    // Rocks video timeline (Val's "Part 5", 24fps). Shut until frame 11,
+    // apart by frame 28, settled from frame 52; every highlight holds that
+    // exact pose. The close runs from frame 360 (mobile: 358) until shut at
+    // frame 378 (mobile: 376). Times sit mid-frame so every browser lands on
+    // the intended frame.
+    cLayersOpenMotionStart: 0.48,
+    cLayersOpenMotionEnd: 1.17,
+    cLayersOpenTime: 2.19,
+    cLayersCloseStartTime: 15.02,
+    cLayersCloseMotionEnd: 15.75,
     cLayersOpenFadeDuration: 0.45,
     cLayersMapFadeDuration: 0.45,
     cLayersStateFade: 0.32,
     cLayersCloseViewportRatio: 1.7,
     cLayersToTeamRevealStart: "bottom bottom",
     cLayersToTeamRevealEnd: "bottom 65%",
-    // Seconds; the frames Val's Part 5 data/memory/application stills match.
+    // Seconds; the frames Val's data/memory/application stills match.
     cLayersTargets: {
       infrastructure: 4.52,
       memory: 8.81,
-      application: 14.39,
+      application: 13.94,
     },
     cLayersTargetTolerance: 0.015,
     cLayersPanelInDuration: 0.42,
@@ -158,6 +158,8 @@ function initNumenosMedia() {
       cLayersPreloadStart: "top 150%",
       cLayersInteractionTrackVh: 260,
       cLayersCloseViewportRatio: 1.6,
+      cLayersCloseStartTime: 14.94,
+      cLayersCloseMotionEnd: 15.67,
       newsRevealDistanceVh: 10,
       footerRevealDistanceVh: 10,
     },
@@ -2744,7 +2746,7 @@ function initNumenosMedia() {
 
   // C-layers (rocks). Phases follow the scroll position:
   //   intro       – intro copy on screen, video parked on frame 0 at 40%
-  //   opening     – copy has gone, the video plays 0 → 3.5s (fully settled)
+  //   opening     – copy has gone, the video plays 0 → 2.2s (fully settled)
   //   interactive – map + dots live; hovering crossfades to each layer's frame
   //   closing     – past the close point, the video plays its final close
   //   closed      – parked on the last frame
@@ -2985,8 +2987,19 @@ function initNumenosMedia() {
       return Math.min(CONFIG.cLayersOpenTime, getCLayersSafeDuration());
     }
 
+    // The mobile encode closes two frames earlier than the desktop one.
+    const closeStartTime = responsiveValue(
+      CONFIG.cLayersCloseStartTime,
+      CONFIG.mobile.cLayersCloseStartTime,
+    );
+    const closeMotionLength =
+      responsiveValue(
+        CONFIG.cLayersCloseMotionEnd,
+        CONFIG.mobile.cLayersCloseMotionEnd,
+      ) - closeStartTime;
+
     function getCLayersCloseStartTime() {
-      return Math.min(CONFIG.cLayersCloseStartTime, getCLayersSafeDuration());
+      return Math.min(closeStartTime, getCLayersSafeDuration());
     }
 
     function getCLayersCloseEndTime() {
@@ -3000,8 +3013,7 @@ function initNumenosMedia() {
         return gsap.utils.clamp(
           0,
           1,
-          (time - closeStart) /
-            (CONFIG.cLayersCloseMotionEnd - CONFIG.cLayersCloseStartTime),
+          (time - closeStart) / closeMotionLength,
         );
       }
       if (time <= CONFIG.cLayersOpenMotionStart) return 1;
@@ -3017,11 +3029,7 @@ function initNumenosMedia() {
     // that looks the same, instead of restarting from its first frame.
     function getCloseFromTime() {
       const closedness = getClosedness(cLayersMedia.video.currentTime);
-      return (
-        getCLayersCloseStartTime() +
-        closedness *
-          (CONFIG.cLayersCloseMotionEnd - CONFIG.cLayersCloseStartTime)
-      );
+      return getCLayersCloseStartTime() + closedness * closeMotionLength;
     }
 
     function getOpenFromTime(fromIntro) {
