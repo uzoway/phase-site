@@ -36,6 +36,15 @@ function initNumenosMedia() {
     heroGateBufferSeconds: 4,
     heroGateMaxWaitMs: 3500,
     heroGateScrollRatio: 0.35,
+    // Loader ([data-loader], home page only): covers the page until the logo
+    // has played once and the hero video is fully downloaded. It stops
+    // waiting for the hero this long after the page started loading.
+    loaderMaxWaitMs: 10000,
+    loaderFadeDuration: 0.8,
+    loaderLottieUrl:
+      "https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js",
+    heroWholeFileMaxBytes: 24 * 1024 * 1024,
+    heroWholeFileTimeoutMs: 45000,
     prepareStart: "top 200%",
     // Background downloads run a couple at a time, in the order they were
     // asked for, so the clip needed next never shares the connection with
@@ -69,14 +78,15 @@ function initNumenosMedia() {
     cLayersIntroTrackVh: 180,
     cLayersIntroLeadVh: 125,
     cLayersInteractionTrackVh: 320,
-    // Rocks video timeline (both encodes): shut until 0.42s, apart by 1s,
-    // settled open at 2s. The final close runs 15.04s → 15.5s; 15.04s is the
-    // open resting frame again, so nothing before it may be played on close
-    // (12.9s–14.6s is the Application highlight).
+    // Rocks video timeline (both encodes, 24fps). Shut until 0.42s, apart by
+    // 1s, still drifting until 3.3s; frame 84 is the settled pose (the last
+    // frame of Val's "Part 5 start"). Every highlight holds that exact pose.
+    // The close runs from frame 358 (the first frame of "Part 5 end") to 15.5s.
+    // Times sit mid-frame so every browser lands on the intended frame.
     cLayersOpenMotionStart: 0.42,
     cLayersOpenMotionEnd: 1,
-    cLayersOpenTime: 2,
-    cLayersCloseStartTime: 15.04,
+    cLayersOpenTime: 3.52,
+    cLayersCloseStartTime: 14.93,
     cLayersCloseMotionEnd: 15.5,
     cLayersOpenFadeDuration: 0.45,
     cLayersMapFadeDuration: 0.45,
@@ -84,10 +94,11 @@ function initNumenosMedia() {
     cLayersCloseViewportRatio: 1.7,
     cLayersToTeamRevealStart: "bottom bottom",
     cLayersToTeamRevealEnd: "bottom 65%",
+    // Seconds; the frames Val's Part 5 data/memory/application stills match.
     cLayersTargets: {
-      infrastructure: 0.3125,
-      memory: 0.581,
-      application: 0.875,
+      infrastructure: 4.52,
+      memory: 8.81,
+      application: 14.39,
     },
     cLayersTargetTolerance: 0.015,
     cLayersPanelInDuration: 0.42,
@@ -112,6 +123,8 @@ function initNumenosMedia() {
     sectionGapLeadRatio: 0.35,
 
     storyStepStart: "top 60%",
+    // Step 2 starts a quarter screen earlier, while Step 1's copy is leaving.
+    storyStep2Start: "top 85%",
     storyCrossfade: 0.3,
     storySwapFade: 0.12,
     storyCatchUpRate: 2.5,
@@ -140,6 +153,7 @@ function initNumenosMedia() {
       mediaRevealScrub: 0.18,
       viewportFadeScrub: 0.08,
       storyStepStart: "top 68%",
+      storyStep2Start: "top 93%",
       cLayersRevealDistanceVh: 12,
       cLayersPreloadStart: "top 150%",
       cLayersInteractionTrackVh: 260,
@@ -189,17 +203,29 @@ function initNumenosMedia() {
     return mediaMap.get(section.getAttribute("data-section")) || null;
   }
 
+  // Webflow's Background Video element hands out direct S3 links. The same
+  // files are on Webflow's Cloudflare CDN, which is many times faster (S3 has
+  // measured as low as 2 Mbps); loadVideo falls back to S3 if the CDN fails.
+  const S3_ASSETS = "https://s3.amazonaws.com/webflow-prod-assets/";
+  const CDN_ASSETS = "https://cdn.prod.website-files.com/";
+
+  function viaCdn(url) {
+    return url && url.indexOf(S3_ASSETS) === 0
+      ? CDN_ASSETS + url.slice(S3_ASSETS.length)
+      : url || "";
+  }
+
   // `variant` reads an alternate URL (e.g. "reverse" -> data-video-desktop-reverse)
   // for the same platform as the main source, so orientations never mix.
   function getVideoSource(el, variant) {
     const desktop = el.getAttribute("data-video-desktop");
     const mobile = el.getAttribute("data-video-mobile");
     const useMobile = !!(mobileQuery.matches && mobile) || !desktop;
-    if (!variant) return (useMobile ? mobile : desktop) || "";
-    return (
+    if (!variant) return viaCdn(useMobile ? mobile : desktop);
+    return viaCdn(
       el.getAttribute(
         `data-video-${useMobile ? "mobile" : "desktop"}-${variant}`,
-      ) || ""
+      ),
     );
   }
 
@@ -358,12 +384,186 @@ function initNumenosMedia() {
     resolveHeroGate = null;
   }
 
+  // Webflow's own copy of lottie-web (for the nav icon) arrives too late for
+  // the loader, so the player comes from the CDN, preloaded by the page <head>.
+  function loadLottie() {
+    function existing() {
+      return window.lottie && window.lottie.loadAnimation
+        ? window.lottie
+        : null;
+    }
+    if (existing()) return Promise.resolve(existing());
+    return new Promise(function (resolve) {
+      const script = document.createElement("script");
+      script.src = CONFIG.loaderLottieUrl;
+      script.async = true;
+      script.onload = function () {
+        resolve(existing());
+      };
+      script.onerror = function () {
+        resolve(null);
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  // [data-loader] is styled in the page <head> so it covers the first paint,
+  // with a CSS failsafe that hides it if this script never arrives. Here it
+  // locks scrolling and plays the logo once, then fades out when the hero is
+  // ready or the wait limit (counted from navigation start) has passed. The
+  // logo always finishes once it has started.
+  function initLoader() {
+    const loader = document.querySelector("[data-loader]");
+    if (!loader) return null;
+    const remainingAtStart = CONFIG.loaderMaxWaitMs - performance.now();
+    if (remainingAtStart <= 0) {
+      gsap.to(loader, {
+        autoAlpha: 0,
+        duration: CONFIG.loaderFadeDuration,
+        onComplete: function () {
+          loader.remove();
+        },
+      });
+      return null;
+    }
+    loader.style.animation = "none";
+
+    const html = document.documentElement;
+    const scrollKeys = [
+      " ",
+      "Spacebar",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+      "ArrowUp",
+      "ArrowDown",
+    ];
+    const blockOptions = { capture: true, passive: false };
+    // Capture phase on window runs before Lenis's own wheel listener.
+    function blockScroll(event) {
+      if (event.cancelable) event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    function blockScrollKeys(event) {
+      if (scrollKeys.indexOf(event.key) !== -1) blockScroll(event);
+    }
+    // The stable gutter stops the page reflowing when the scrollbar returns.
+    html.style.scrollbarGutter = "stable";
+    html.style.overflow = "hidden";
+    window.addEventListener("wheel", blockScroll, blockOptions);
+    window.addEventListener("touchmove", blockScroll, blockOptions);
+    window.addEventListener("keydown", blockScrollKeys, true);
+    // ScrollTrigger rewrites history.scrollRestoration on every refresh; this
+    // makes "manual" the value it keeps, so a reload opens at the top.
+    ScrollTrigger.clearScrollMemory("manual");
+    if (!location.hash) window.scrollTo(0, 0);
+
+    let open = true;
+    let logoDone = false;
+    let heroDone = false;
+    let waitOver = false;
+    let animation = null;
+    let resolveExit = null;
+    const exited = new Promise(function (resolve) {
+      resolveExit = resolve;
+    });
+    const capId = setTimeout(function () {
+      waitOver = true;
+      maybeExit();
+    }, remainingAtStart);
+
+    function exit() {
+      if (!open) return;
+      open = false;
+      clearTimeout(capId);
+      window.removeEventListener("wheel", blockScroll, blockOptions);
+      window.removeEventListener("touchmove", blockScroll, blockOptions);
+      window.removeEventListener("keydown", blockScrollKeys, true);
+      html.style.overflow = "";
+      html.style.scrollbarGutter = "";
+      loader.style.pointerEvents = "none";
+      resolveExit();
+      gsap.to(loader, {
+        autoAlpha: 0,
+        duration: CONFIG.loaderFadeDuration,
+        ease: "power2.inOut",
+        onComplete: function () {
+          if (animation) animation.destroy();
+          loader.remove();
+        },
+      });
+    }
+
+    function maybeExit() {
+      if (logoDone && (heroDone || waitOver)) exit();
+    }
+
+    function finishLogo() {
+      logoDone = true;
+      maybeExit();
+    }
+
+    const logo = loader.querySelector("[data-loader-logo]");
+    if (!logo) {
+      finishLogo();
+    } else {
+      loadLottie().then(function (lottie) {
+        if (!open) return;
+        if (!lottie) {
+          finishLogo();
+          return;
+        }
+        try {
+          animation = lottie.loadAnimation({
+            container: logo,
+            renderer: "svg",
+            loop: false,
+            autoplay: false,
+            animationData: NUMENOS_LOADER_ANIMATION,
+            rendererSettings: { preserveAspectRatio: "xMidYMid meet" },
+          });
+        } catch (error) {
+          finishLogo();
+          return;
+        }
+        function start() {
+          if (reducedMotion.matches) {
+            animation.goToAndStop(animation.totalFrames - 1, true);
+            setTimeout(finishLogo, 600);
+            return;
+          }
+          animation.addEventListener("complete", finishLogo);
+          animation.play();
+        }
+        if (animation.isLoaded) start();
+        else animation.addEventListener("DOMLoaded", start);
+      });
+    }
+
+    return {
+      exited,
+      isOpen: function () {
+        return open;
+      },
+      remainingMs: function () {
+        return Math.max(0, CONFIG.loaderMaxWaitMs - performance.now());
+      },
+      heroReady: function () {
+        heroDone = true;
+        maybeExit();
+      },
+    };
+  }
+
   function watchHeroGate() {
     if (reducedMotion.matches) {
       openHeroGate();
       return;
     }
-    setTimeout(openHeroGate, CONFIG.heroGateMaxWaitMs * 2);
+    // With the loader the hero keeps the network to itself until its file is
+    // complete (or the visitor scrolls), even after the loader has gone.
+    if (!loader) setTimeout(openHeroGate, CONFIG.heroGateMaxWaitMs * 2);
     function onScroll() {
       if (window.scrollY > getViewportHeight() * CONFIG.heroGateScrollRatio) {
         openHeroGate();
@@ -531,6 +731,14 @@ function initNumenosMedia() {
       video.load();
     }
     return waitForVideoReady(video).then(function (ready) {
+      if (
+        !ready &&
+        video.error &&
+        video.dataset.src === requestedUrl &&
+        url.indexOf(CDN_ASSETS) === 0
+      ) {
+        return loadVideo(video, S3_ASSETS + url.slice(CDN_ASSETS.length));
+      }
       return ready && video.dataset.src === requestedUrl;
     });
   }
@@ -1136,11 +1344,71 @@ function initNumenosMedia() {
     applyGaps();
   }
 
+  function heroUnavailable() {
+    openHeroGate();
+    if (loader) loader.heroReady();
+  }
+
+  // Behind the loader the whole file downloads before anything plays. Its
+  // first frame waits under the loader and starts moving as the loader fades.
+  function loadHeroBehindLoader(media) {
+    const video = media.video;
+    let wholeFile = null;
+    media.resolveSource = function (url) {
+      if (!wholeFile) {
+        wholeFile = fetchWholeVideo(
+          url,
+          CONFIG.heroWholeFileMaxBytes,
+          CONFIG.heroWholeFileTimeoutMs,
+        );
+      }
+      return wholeFile;
+    };
+
+    function start(fadeIn) {
+      if (!media.active) return;
+      activeMedia.add(media);
+      if (fadeIn) revealAndPlay(media, CONFIG.revealDuration);
+      else safePlay(video);
+    }
+
+    prepareMedia(media)
+      .then(function (ready) {
+        if (!ready) return false;
+        if (video.src.indexOf("blob:") === 0) return true;
+        // The download fell back to streaming: wait until it's all buffered.
+        return waitForVideoBuffer(video, {
+          bufferFraction: 1,
+          strict: true,
+          maxWaitMs: Math.max(1, loader.remainingMs()),
+        });
+      })
+      .then(function () {
+        if (!media.loaded) {
+          heroUnavailable();
+          return;
+        }
+        openHeroGate();
+        if (!loader.isOpen()) {
+          start(true);
+          return;
+        }
+        seekTo(video, FIRST_FRAME_TIME).then(function () {
+          media.revealed = true;
+          gsap.set(video, { opacity: 1 });
+          loader.heroReady();
+          loader.exited.then(function () {
+            start(false);
+          });
+        });
+      });
+  }
+
   function initHero() {
     const section = getSectionByRole("hero");
     const media = getSectionMedia(section);
     if (!section || !media) {
-      openHeroGate();
+      heroUnavailable();
       return;
     }
 
@@ -1148,17 +1416,44 @@ function initNumenosMedia() {
 
     const video = media.video;
     if (!video || reducedMotion.matches) {
-      openHeroGate();
+      heroUnavailable();
       return;
     }
 
     configureVideo(video);
     video.loop = true;
     media.active = true;
-    activeMedia.add(media);
 
-    // A short head start in the buffer before the first frame moves, so the
-    // opening seconds don't stutter while the rest streams in.
+    if (loader) {
+      loadHeroBehindLoader(media);
+    } else {
+      activeMedia.add(media);
+      loadHeroStreaming(media);
+    }
+
+    ScrollTrigger.create({
+      trigger: section,
+      start: "top top",
+      end: "bottom top",
+      onLeave: function () {
+        deactivateMedia(media);
+      },
+      onEnterBack: function () {
+        media.active = true;
+        activeMedia.add(media);
+        if (media.loaded && !media.revealed) {
+          revealAndPlay(media, CONFIG.revealDuration);
+        } else {
+          safePlay(video);
+        }
+      },
+    });
+  }
+
+  // Without a loader: a short head start in the buffer before the first frame
+  // moves, so the opening seconds don't stutter while the rest streams in.
+  function loadHeroStreaming(media) {
+    const video = media.video;
     prepareMedia(media).then(function (ready) {
       if (!ready) {
         openHeroGate();
@@ -1177,24 +1472,6 @@ function initNumenosMedia() {
           });
         })
         .then(openHeroGate);
-    });
-
-    ScrollTrigger.create({
-      trigger: section,
-      start: "top top",
-      end: "bottom top",
-      onLeave: function () {
-        deactivateMedia(media);
-      },
-      onEnterBack: function () {
-        media.active = true;
-        activeMedia.add(media);
-        if (media.loaded && !media.revealed) {
-          revealAndPlay(media, CONFIG.revealDuration);
-        } else {
-          safePlay(video);
-        }
-      },
     });
   }
 
@@ -1905,6 +2182,10 @@ function initNumenosMedia() {
       CONFIG.storyStepStart,
       CONFIG.mobile.storyStepStart,
     );
+    const step2Start = responsiveValue(
+      CONFIG.storyStep2Start,
+      CONFIG.mobile.storyStep2Start,
+    );
 
     // ScrollTrigger can fire callbacks while a trigger is being created, so
     // they're ignored until every trigger below exists.
@@ -1941,9 +2222,10 @@ function initNumenosMedia() {
         return parseInt(row.getAttribute("data-story-step"), 10) > 1;
       })
       .map(function (row) {
+        const stepNumber = parseInt(row.getAttribute("data-story-step"), 10);
         return ScrollTrigger.create({
           trigger: row,
-          start: stepStart,
+          start: stepNumber === 2 ? step2Start : stepStart,
           onEnter: updateTarget,
           onLeaveBack: updateTarget,
         });
@@ -2029,6 +2311,13 @@ function initNumenosMedia() {
     });
 
     return {
+      // Queued behind the hero while the loader is up: the first clips a
+      // visitor reaches, so Step 1 and Step 2 are ready before they get there.
+      warm: function () {
+        prefetchClip(clips["1:forward"]);
+        prefetchClip(clips["1:rest"]);
+        prefetchClip(clips["2:forward"]);
+      },
       suspend: function () {
         if (!active) return;
         opId += 1;
@@ -2455,12 +2744,13 @@ function initNumenosMedia() {
 
   // C-layers (rocks). Phases follow the scroll position:
   //   intro       – intro copy on screen, video parked on frame 0 at 40%
-  //   opening     – copy has gone, the video plays 0 → 2s on its own
+  //   opening     – copy has gone, the video plays 0 → 3.5s (fully settled)
   //   interactive – map + dots live; hovering crossfades to each layer's frame
   //   closing     – past the close point, the video plays its final close
   //   closed      – parked on the last frame
   // Scrolling back up reverses this: the rocks reopen from closed, and close
-  // again (dimmed) when the intro copy returns.
+  // again (dimmed) when the intro copy returns. Phones keep the rocks at the
+  // intro's 40% throughout so the labels and cards stay readable.
   function initCLayers(handles) {
     const insights = getSectionByRole("insights");
     const cLayers = getSectionByRole("c-layers");
@@ -2540,6 +2830,14 @@ function initNumenosMedia() {
       row.style.position = "fixed";
       row.style.inset = "0";
       gsap.set(row, { autoAlpha: 0 });
+      row.querySelectorAll(".layers_close-button").forEach(function (button) {
+        button.type = "button";
+        if (!button.hasAttribute("aria-label"))
+          button.setAttribute("aria-label", "Close");
+        button.addEventListener("click", function () {
+          resetLayers({ immediate: false, resetVideo: true });
+        });
+      });
     });
 
     controls.forEach(function (control) {
@@ -2577,6 +2875,10 @@ function initNumenosMedia() {
       row.style.pointerEvents = "none";
       const card = row.querySelector(".layers_card");
       if (card) card.style.pointerEvents = "none";
+      // Taps on the card fall through and close it; only the X catches them.
+      row.querySelectorAll(".layers_close-button").forEach(function (button) {
+        button.style.pointerEvents = active ? "auto" : "none";
+      });
     }
 
     function hidePanel(row, immediate) {
@@ -2671,10 +2973,12 @@ function initNumenosMedia() {
       return Math.max(0, video.duration - 0.034);
     }
 
-    function getCLayersTargetTime(progress) {
-      const duration = getCLayersSafeDuration();
-      if (!duration) return 0;
-      return duration * gsap.utils.clamp(0, 1, progress);
+    function getCLayersTargetTime(seconds) {
+      return Math.min(seconds, getCLayersSafeDuration());
+    }
+
+    function getRocksOpacity() {
+      return mobileQuery.matches ? CONFIG.cLayersIntroOpacity : 1;
     }
 
     function getCLayersOpenTime() {
@@ -2772,7 +3076,8 @@ function initNumenosMedia() {
         cLayersMedia,
         Object.assign({}, CONFIG.cLayersBuffer, {
           hidePosters: true,
-          revealOpacity: phase === "intro" ? CONFIG.cLayersIntroOpacity : 1,
+          revealOpacity:
+            phase === "intro" ? CONFIG.cLayersIntroOpacity : getRocksOpacity(),
         }),
       ).then(function (ready) {
         if (!ready || !cLayersMedia.video) {
@@ -2802,7 +3107,8 @@ function initNumenosMedia() {
             if (actionId !== videoActionId) return false;
             gsap.killTweensOf(video);
             gsap.set(video, {
-              opacity: options.opacity != null ? options.opacity : 1,
+              opacity:
+                options.opacity != null ? options.opacity : getRocksOpacity(),
             });
             if (freeze) {
               freeze.release(
@@ -2838,7 +3144,8 @@ function initNumenosMedia() {
 
         if (freeze) freeze.release(frozen ? CONFIG.cLayersStateFade : 0.2);
         gsap.to(video, {
-          opacity: options.opacity != null ? options.opacity : 1,
+          opacity:
+            options.opacity != null ? options.opacity : getRocksOpacity(),
           duration:
             options.fadeDuration != null
               ? options.fadeDuration
@@ -3046,7 +3353,7 @@ function initNumenosMedia() {
         },
         getCLayersOpenTime,
         {
-          opacity: 1,
+          opacity: getRocksOpacity(),
           fadeDuration: CONFIG.cLayersOpenFadeDuration,
           freeze: true,
         },
@@ -3065,7 +3372,7 @@ function initNumenosMedia() {
       hideLayerMap(false);
       resetLayers({ immediate: false });
       playCLayersSegment(getCloseFromTime, getCLayersCloseEndTime, {
-        opacity: 1,
+        opacity: getRocksOpacity(),
         fadeDuration: 0,
         freeze: true,
       }).then(function () {
@@ -3082,7 +3389,7 @@ function initNumenosMedia() {
       setControlsEnabled(false);
       hideLayerMap(true);
       resetLayers({ immediate: true });
-      transitionTo(getCLayersCloseEndTime, { opacity: 1 });
+      transitionTo(getCLayersCloseEndTime, { opacity: getRocksOpacity() });
     }
 
     function reconcileLayers() {
@@ -3303,6 +3610,15 @@ function initNumenosMedia() {
     });
   }
 
+  let loader = null;
+  try {
+    loader = initLoader();
+  } catch (error) {
+    reportError("loader", error);
+    const element = document.querySelector("[data-loader]");
+    if (element) element.remove();
+  }
+
   buildMediaMap();
   initLayoutStability();
   watchHeroGate();
@@ -3353,6 +3669,7 @@ function initNumenosMedia() {
   }
   try {
     handles.story = initStory();
+    if (loader && handles.story) heroGate.then(handles.story.warm);
   } catch (error) {
     reportError("story", error);
   }
@@ -3378,6 +3695,10 @@ function initNumenosMedia() {
     { once: true },
   );
 }
+
+// Val's "logo loading in" animation (the .lottie file's JSON), played by the
+// loader. Inlined so the logo can start without another request.
+const NUMENOS_LOADER_ANIMATION = {"nm":"logo loading in","ddd":0,"h":300,"w":1600,"meta":{"g":"@lottiefiles/toolkit-js 0.76.0","tc":"#ffffff"},"layers":[{"ty":4,"nm":"Numenos 2","sr":1,"st":72,"op":448,"ip":72,"ln":"6291","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[-90.68,0]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":72},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":85}]},"p":{"a":0,"k":[476.106,156.647]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 1","d":1,"ks":{"a":0,"k":{"c":true,"i":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"v":[[-82.361,6.979],[-83.426,7.097],[-83.426,-13.8],[-78.418,-13.8],[-78.418,13.8],[-84.096,13.8],[-98.684,-10.409],[-97.896,-10.606],[-97.896,13.8],[-102.943,13.8],[-102.943,-13.8],[-94.86,-13.8]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":1},{"ty":4,"nm":"Numenos 3","sr":1,"st":69,"op":445,"ip":69,"ln":"6292","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[-61.098,0.276]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":69},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":82}]},"p":{"a":0,"k":[640.171,158.178]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 2","d":1,"ks":{"a":0,"k":{"c":true,"i":[[0.92,1.604],[0,2.261],[0,0],[0,0],[0,0],[-0.499,-0.972],[-0.946,-0.473],[-1.393,0],[-1.13,1.051],[0,2.156],[0,0],[0,0],[0,0],[0.946,-1.603],[1.787,-0.841],[2.445,0],[1.762,0.841]],"o":[[-0.92,-1.603],[0,0],[0,0],[0,0],[0,1.42],[0.5,0.947],[0.946,0.474],[2.103,0],[1.13,-1.078],[0,0],[0,0],[0,0],[0,2.261],[-0.92,1.604],[-1.761,0.841],[-2.445,0],[-1.734,-0.841]],"v":[[-71.448,9.423],[-72.828,3.627],[-72.828,-13.8],[-67.584,-13.8],[-67.584,3.154],[-66.835,6.742],[-64.666,8.871],[-61.157,9.581],[-56.307,8.004],[-54.612,3.154],[-54.612,-13.8],[-49.368,-13.8],[-49.368,3.627],[-50.787,9.423],[-54.848,13.09],[-61.157,14.352],[-67.466,13.09]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":2},{"ty":4,"nm":"Numenos 4","sr":1,"st":66,"op":442,"ip":66,"ln":"6293","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[-28.715,0]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":66},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":79}]},"p":{"a":0,"k":[819.764,156.647]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 3","d":1,"ks":{"a":0,"k":{"c":true,"i":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"v":[[-27.335,9.502],[-29.898,9.187],[-22.446,-13.8],[-13.614,-13.8],[-13.614,13.8],[-18.819,13.8],[-18.819,-11.868],[-18.306,-11.829],[-26.705,13.8],[-31.002,13.8],[-39.361,-11.829],[-38.809,-11.907],[-38.809,13.8],[-43.817,13.8],[-43.817,-13.8],[-35.103,-13.8]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":3},{"ty":4,"nm":"Numenos 5","sr":1,"st":63,"op":439,"ip":63,"ln":"6294","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[3.393,0]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":63},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":76}]},"p":{"a":0,"k":[997.836,156.647]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 4","d":1,"ks":{"a":0,"k":{"c":true,"i":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"v":[[13.802,-9.266],[-2.521,-9.266],[-2.521,-3.075],[8.637,-3.075],[8.637,1.538],[-2.521,1.538],[-2.521,9.187],[14.551,9.187],[14.551,13.8],[-7.765,13.8],[-7.765,-13.8],[13.802,-13.8]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":4},{"ty":4,"nm":"Numenos 6","sr":1,"st":66,"op":442,"ip":66,"ln":"6295","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[30.729,0]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":66},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":79}]},"p":{"a":0,"k":[1149.444,156.647]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 5","d":1,"ks":{"a":0,"k":{"c":true,"i":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]],"v":[[39.049,6.979],[37.984,7.097],[37.984,-13.8],[42.992,-13.8],[42.992,13.8],[37.314,13.8],[22.725,-10.409],[23.514,-10.606],[23.514,13.8],[18.467,13.8],[18.467,-13.8],[26.55,-13.8]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":5},{"ty":4,"nm":"Numenos 7","sr":1,"st":69,"op":445,"ip":69,"ln":"6296","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[61.239,0]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":69},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":82}]},"p":{"a":0,"k":[1318.648,156.647]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 6","d":1,"ks":{"a":0,"k":{"c":true,"i":[[1.209,2.181],[0,2.76],[-1.183,2.182],[-2.103,1.209],[-2.681,0],[-2.13,-1.235],[-1.209,-2.181],[0,-2.76],[1.209,-2.182],[2.129,-1.235],[2.681,0],[2.129,1.209]],"o":[[-1.183,-2.182],[0,-2.76],[1.209,-2.181],[2.129,-1.235],[2.681,0],[2.129,1.209],[1.209,2.182],[0,2.76],[-1.209,2.181],[-2.13,1.209],[-2.681,0],[-2.103,-1.235]],"v":[[49.016,7.413],[47.241,0],[49.016,-7.413],[53.984,-12.499],[61.199,-14.352],[68.415,-12.499],[73.422,-7.413],[75.236,0],[73.422,7.413],[68.415,12.538],[61.199,14.352],[53.984,12.538]]}}},{"ty":"sh","nm":"Path 7","d":1,"ks":{"a":0,"k":{"c":true,"i":[[-0.71,1.446],[0,1.919],[0.736,1.446],[1.288,0.815],[1.682,0],[1.288,-0.815],[0.736,-1.472],[0,-1.919],[-0.71,-1.472],[-1.262,-0.815],[-1.682,0],[-1.288,0.815]],"o":[[0.736,-1.472],[0,-1.919],[-0.71,-1.472],[-1.288,-0.815],[-1.682,0],[-1.262,0.815],[-0.71,1.446],[0,1.919],[0.736,1.446],[1.288,0.815],[1.682,0],[1.288,-0.815]],"v":[[68.651,5.086],[69.755,0],[68.651,-5.047],[65.655,-8.477],[61.199,-9.699],[56.744,-8.477],[53.747,-5.047],[52.683,0],[53.747,5.086],[56.744,8.477],[61.199,9.699],[65.655,8.477]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":6},{"ty":4,"nm":"Numenos 1","sr":1,"st":72,"op":448,"ip":72,"ln":"6275","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[89.931,0]},"s":{"a":1,"k":[{"s":[0,554.6],"i":{"x":[0.24,0.24],"y":[1,1]},"o":{"x":[0,0],"y":[0,0]},"t":72},{"s":[554.6,554.6],"i":{"x":[1,1],"y":[1,1]},"o":{"x":[0.167,0.167],"y":[0,0]},"t":85}]},"p":{"a":0,"k":[1477.778,156.647]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Numenos","it":[{"ty":"sh","nm":"Path 8","d":1,"ks":{"a":0,"k":{"c":true,"i":[[1.341,0.841],[0.946,0.92],[0,0],[-1.919,-0.841],[-2.182,0],[-1.157,0.605],[0,1.288],[0.657,0.473],[1.446,0.262],[0,0],[1.55,1.236],[0,2.13],[-0.893,1.262],[-1.656,0.684],[-2.261,0],[-1.945,-0.657],[-2.103,-1.209],[0,0],[1.761,0.552],[1.866,0],[0.92,-0.578],[-0.026,-1.025],[-0.815,-0.5],[-1.682,-0.289],[0,0],[-1.446,-1.235],[0,-2.287],[0.972,-1.341],[1.814,-0.71],[2.392,0],[1.84,0.552]],"o":[[-1.34,-0.841],[0,0],[1.577,1.446],[1.919,0.841],[1.893,0],[1.156,-0.631],[0,-0.868],[-0.631,-0.499],[0,0],[-3.023,-0.552],[-1.525,-1.235],[0,-1.656],[0.894,-1.262],[1.656,-0.683],[2.365,0],[1.945,0.631],[0,0],[-1.787,-1.051],[-1.735,-0.578],[-1.814,0],[-0.92,0.552],[0,0.841],[0.841,0.499],[0,0],[2.865,0.499],[1.446,1.209],[0,1.84],[-0.973,1.314],[-1.787,0.683],[-2.129,0],[-1.814,-0.552]],"v":[[80.35,11.434],[76.92,8.793],[79.719,4.968],[84.963,8.398],[91.114,9.66],[95.688,8.753],[97.423,5.875],[96.437,3.864],[93.322,2.721],[87.802,1.695],[80.942,-0.986],[78.655,-6.033],[79.995,-10.409],[83.82,-13.327],[89.695,-14.352],[96.161,-13.366],[102.233,-10.606],[100.222,-6.427],[94.899,-8.832],[89.498,-9.699],[85.397,-8.832],[84.056,-6.466],[85.279,-4.455],[89.064,-3.273],[94.308,-2.326],[100.774,0.276],[102.943,5.52],[101.484,10.291],[97.304,13.327],[91.035,14.352],[85.082,13.524]]}}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.2157,0.1294,0.0863]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":7},{"ty":0,"nm":"icon","sr":1,"st":0,"op":376,"ip":0,"ln":"6249","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[150,150]},"s":{"a":0,"k":[100,100]},"p":{"a":1,"k":[{"o":{"x":0.958,"y":0},"i":{"x":0.67,"y":0.647},"s":[800,150],"t":56.999},{"o":{"x":0.169,"y":1.293},"i":{"x":0.458,"y":1},"s":[292.099,150],"t":71.999},{"s":[178.286,150],"t":95.999}]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"w":300,"h":300,"refId":"1","ind":8}],"v":"5.7.0","fr":24,"op":112,"ip":0,"assets":[{"nm":"icon","id":"1","fr":24,"layers":[{"ty":4,"nm":"Shape Layer 5","sr":1,"st":0,"op":376,"ip":40,"ln":"6223","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[1.967,-112.074]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[151.967,265.283]},"r":{"a":0,"k":180},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Shape 1","it":[{"ty":"sh","nm":"Path 1","d":1,"ks":{"a":1,"k":[{"o":{"x":0.167,"y":0},"i":{"x":0.24,"y":1},"s":[{"c":true,"i":[[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0]],"v":[[14.346,-112.074],[-10.412,-108.387],[-10.427,-124.679],[14.198,-109.76]]}],"t":40},{"s":[{"c":true,"i":[[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0]],"v":[[14.346,-112.074],[-10.412,-108.387],[-10.412,-48.337],[14.346,-3.564]]}],"t":55.999}]}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.7725,0.8784,0.7686]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":1},{"ty":4,"nm":"Shape Layer 4","sr":1,"st":-3,"op":373,"ip":37,"ln":"6221","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[1.967,-112.074]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[151.967,37.926]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Shape 1","it":[{"ty":"sh","nm":"Path 1","d":1,"ks":{"a":1,"k":[{"o":{"x":0.167,"y":0},"i":{"x":0.24,"y":1},"s":[{"c":true,"i":[[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0]],"v":[[14.346,-112.074],[-10.412,-108.387],[-10.337,-113.164],[14.32,-109.333]]}],"t":37},{"s":[{"c":true,"i":[[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0]],"v":[[14.346,-112.074],[-10.412,-108.387],[-10.412,-48.337],[14.346,-3.564]]}],"t":52.999}]}},{"ty":"fl","nm":"Fill 1","c":{"a":0,"k":[0.7725,0.8784,0.7686]},"r":1,"o":{"a":0,"k":100}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":2},{"ty":4,"nm":"Shape Layer 3","sr":1,"st":-3,"op":373,"ip":32,"ln":"6219","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[-54.132,2.055]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[206.081,152.055]},"r":{"a":0,"k":180},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Shape 1","it":[{"ty":"sh","nm":"Path 1","d":1,"ks":{"a":1,"k":[{"o":{"x":0.167,"y":0},"i":{"x":0.24,"y":1},"s":[{"c":false,"i":[[0,0],[0,0]],"o":[[0,0],[0,0]],"v":[[-54.132,-107.158],[-54.218,-105.815]]}],"t":32},{"s":[{"c":false,"i":[[0,0],[0,0]],"o":[[0,0],[0,0]],"v":[[-54.132,-107.158],[-54.132,111.267]]}],"t":49.999}]}},{"ty":"st","nm":"Stroke 1","lc":1,"lj":1,"ml":4,"o":{"a":0,"k":100},"w":{"a":0,"k":23.7},"c":{"a":0,"k":[0.7725,0.8784,0.7686]}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":3},{"ty":4,"nm":"Shape Layer 2","sr":1,"st":-6,"op":370,"ip":29,"ln":"6218","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[150,150]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Shape 1","it":[{"ty":"sh","nm":"Path 1","d":1,"ks":{"a":1,"k":[{"o":{"x":0.167,"y":0},"i":{"x":0.24,"y":1},"s":[{"c":false,"i":[[0,0],[0,0]],"o":[[0,0],[0,0]],"v":[[-54.132,-107.158],[-54.223,-107.095]]}],"t":29},{"s":[{"c":false,"i":[[0,0],[0,0]],"o":[[0,0],[0,0]],"v":[[-54.132,-107.158],[-54.132,111.267]]}],"t":46.999}]}},{"ty":"st","nm":"Stroke 1","lc":1,"lj":1,"ml":4,"o":{"a":0,"k":100},"w":{"a":0,"k":23.7},"c":{"a":0,"k":[0.7725,0.8784,0.7686]}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[0,0]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]}],"ind":4},{"ty":4,"nm":"Shape Layer 1","sr":1,"st":0,"op":376,"ip":0,"ln":"6217","hasMask":false,"ao":0,"ks":{"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[150.403,153.213]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","nm":"Ellipse 1","it":[{"ty":"el","nm":"Ellipse Path 1","d":1,"p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[238.433,238.433]}},{"ty":"st","nm":"Stroke 1","lc":1,"lj":1,"ml":4,"o":{"a":0,"k":100},"w":{"a":0,"k":23.7},"c":{"a":0,"k":[0.7725,0.8784,0.7686]}},{"ty":"tr","a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"p":{"a":0,"k":[-0.403,-3.213]},"r":{"a":0,"k":0},"sa":{"a":0,"k":0},"o":{"a":0,"k":100}}]},{"ty":"tm","nm":"Trim Paths 1","e":{"a":1,"k":[{"o":{"x":0.333,"y":0},"i":{"x":0.24,"y":1},"s":[0],"t":0},{"s":[100],"t":33}]},"o":{"a":0,"k":0},"s":{"a":0,"k":0},"m":1}],"ind":5}]}]};
 
 document.addEventListener("DOMContentLoaded", initNumenosMedia);
 
