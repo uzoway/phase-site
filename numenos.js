@@ -2535,6 +2535,20 @@ function initNumenosMedia() {
     );
   }
 
+  // Safari clips anything that spills outside an element carrying a CSS
+  // filter, which cut the eyebrows' blurred glow (their ::before) to a hard
+  // box. Elements with their own glow ([data-blur-bg]) therefore only fade,
+  // and the blur goes on a wrapper around their text.
+  function getBlurTarget(element) {
+    if (!element.hasAttribute("data-blur-bg")) return element;
+    const wrapper = document.createElement("span");
+    wrapper.setAttribute("data-blur-text", "");
+    wrapper.style.display = "inline-block";
+    while (element.firstChild) wrapper.appendChild(element.firstChild);
+    element.appendChild(wrapper);
+    return wrapper;
+  }
+
   function createStoryRowFade(row) {
     const elements = [
       row.querySelector("[data-story-eyebrow]"),
@@ -2542,10 +2556,9 @@ function initNumenosMedia() {
       row.querySelector("[data-story-subtext]"),
     ].filter(Boolean);
     if (!elements.length) return;
-    gsap.set(elements, {
-      opacity: 0,
-      filter: `blur(${CONFIG.storyFadeBlur}px)`,
-    });
+    const blurTargets = elements.map(getBlurTarget);
+    gsap.set(elements, { opacity: 0 });
+    gsap.set(blurTargets, { filter: `blur(${CONFIG.storyFadeBlur}px)` });
     const timeline = gsap.timeline({
       scrollTrigger: {
         trigger: row,
@@ -2557,21 +2570,30 @@ function initNumenosMedia() {
       },
     });
     elements.forEach(function (element, index) {
+      const at = index * CONFIG.storyRowRevealStagger;
       timeline.to(
         element,
+        { opacity: 1, duration: CONFIG.storyRowRevealDuration, ease: "none" },
+        at,
+      );
+      timeline.to(
+        blurTargets[index],
         {
-          opacity: 1,
           filter: "blur(0px)",
           duration: CONFIG.storyRowRevealDuration,
           ease: "none",
         },
-        index * CONFIG.storyRowRevealStagger,
+        at,
       );
     });
     timeline.to(
       elements,
+      { opacity: 0, duration: CONFIG.storyRowRevealDuration, ease: "none" },
+      CONFIG.storyRowFadeOutStart,
+    );
+    timeline.to(
+      blurTargets,
       {
-        opacity: 0,
         filter: `blur(${CONFIG.viewportFadeBlur}px)`,
         duration: CONFIG.storyRowRevealDuration,
         ease: "none",
@@ -2607,7 +2629,7 @@ function initNumenosMedia() {
     }
     document
       .querySelectorAll(
-        "[data-story-eyebrow], [data-story-title], [data-story-subtext]",
+        "[data-story-eyebrow], [data-story-title], [data-story-subtext], [data-blur-text]",
       )
       .forEach(function (el) {
         targets.push(el);
