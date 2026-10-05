@@ -4,11 +4,18 @@ function initChronicleSphere() {
   const steps = Array.from(wrap.querySelectorAll('[data-sphere="step"]'));
   if (steps.length < 2) return;
 
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const lenis = window.lenis instanceof Object && typeof window.lenis.scrollTo === "function" ? window.lenis : null;
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  const lenis =
+    window.lenis instanceof Object &&
+    typeof window.lenis.scrollTo === "function"
+      ? window.lenis
+      : null;
 
   const CONFIG = {
-    threeUrl: "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
+    threeUrl:
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
     // Per step, in DOM order: 0 = sphere, 1 = scattered.
     stages: [0, 1, 0],
     sceneFollow: 4,
@@ -17,12 +24,14 @@ function initChronicleSphere() {
     wheelGestureGapMs: 200,
     settleDelayMs: 140,
     swipeThreshold: 0.12,
-    dragBlock: "a, button, input, textarea, select, label, img, svg, video, [data-sphere-nodrag]",
+    dragBlock:
+      "a, button, input, textarea, select, label, img, svg, video, [data-sphere-nodrag]",
     // Only the rendered lines of these block a drag, not their whole box.
     dragText: "h1, h2, h3, h4, h5, h6, p, li, blockquote, span, strong, em",
   };
 
-  const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const easeInOutCubic = (t) =>
+    t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const smooth = (a, b, x) => {
     const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
     return t * t * (3 - 2 * t);
@@ -50,7 +59,9 @@ function initChronicleSphere() {
   let points = [];
   const measure = () => {
     const y = window.scrollY;
-    points = steps.map((step) => Math.round(step.getBoundingClientRect().top + y));
+    points = steps.map((step) =>
+      Math.round(step.getBoundingClientRect().top + y),
+    );
   };
   const currentY = () => (lenis ? lenis.animatedScroll : window.scrollY);
   measure();
@@ -119,10 +130,12 @@ function initChronicleSphere() {
     let target = null;
 
     if (direction > 0) {
-      if (y >= first - EPS && y < last - EPS) target = points.find((p) => p > y + EPS);
+      if (y >= first - EPS && y < last - EPS)
+        target = points.find((p) => p > y + EPS);
       else if (y < first - EPS && goal > first) target = first;
     } else if (direction < 0) {
-      if (y > first + EPS && y <= last + EPS) target = [...points].reverse().find((p) => p < y - EPS);
+      if (y > first + EPS && y <= last + EPS)
+        target = [...points].reverse().find((p) => p < y - EPS);
       else if (y > last + EPS && goal < last) target = last;
     }
 
@@ -134,10 +147,22 @@ function initChronicleSphere() {
   if (lenis) {
     const previousHook = lenis.options.virtualScroll;
     lenis.options.virtualScroll = (data) => {
-      if (typeof previousHook === "function" && previousHook(data) === false) return false;
+      if (typeof previousHook === "function" && previousHook(data) === false)
+        return false;
       const event = data.event;
-      if (!event.type.includes("wheel") || event.ctrlKey || !data.deltaY || lenis.isStopped) return true;
-      if (handleStepIntent(Math.sign(data.deltaY), lenis.targetScroll + data.deltaY)) {
+      if (
+        !event.type.includes("wheel") ||
+        event.ctrlKey ||
+        !data.deltaY ||
+        lenis.isStopped
+      )
+        return true;
+      if (
+        handleStepIntent(
+          Math.sign(data.deltaY),
+          lenis.targetScroll + data.deltaY,
+        )
+      ) {
         if (event.cancelable) event.preventDefault();
         return false;
       }
@@ -148,23 +173,45 @@ function initChronicleSphere() {
       "wheel",
       (event) => {
         if (event.ctrlKey || !event.deltaY) return;
-        if (handleStepIntent(Math.sign(event.deltaY), window.scrollY + event.deltaY)) event.preventDefault();
+        if (
+          handleStepIntent(
+            Math.sign(event.deltaY),
+            window.scrollY + event.deltaY,
+          )
+        )
+          event.preventDefault();
       },
-      { passive: false }
+      { passive: false },
     );
   }
 
   window.addEventListener("keydown", (event) => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey
+    )
+      return;
+    if (lenis && lenis.isStopped) return;
     const el = document.activeElement;
-    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-    const down = ["ArrowDown", "PageDown"].includes(event.key) || (event.key === " " && !event.shiftKey);
-    const up = ["ArrowUp", "PageUp"].includes(event.key) || (event.key === " " && event.shiftKey);
+    if (
+      el &&
+      (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+    )
+      return;
+    const down =
+      ["ArrowDown", "PageDown"].includes(event.key) ||
+      (event.key === " " && !event.shiftKey);
+    const up =
+      ["ArrowUp", "PageUp"].includes(event.key) ||
+      (event.key === " " && event.shiftKey);
     if (!down && !up) return;
     const y = currentY();
     const step = window.innerHeight;
     lastWheel = 0;
-    if (handleStepIntent(down ? 1 : -1, y + (down ? step : -step))) event.preventDefault();
+    if (handleStepIntent(down ? 1 : -1, y + (down ? step : -step)))
+      event.preventDefault();
   });
 
   function settle() {
@@ -180,15 +227,21 @@ function initChronicleSphere() {
     if (points.some((p) => Math.abs(p - y) <= EPS)) return;
 
     const nearest = (v) =>
-      points.reduce((best, p, i) => (Math.abs(p - v) < Math.abs(points[best] - v) ? i : best), 0);
+      points.reduce(
+        (best, p, i) =>
+          Math.abs(p - v) < Math.abs(points[best] - v) ? i : best,
+        0,
+      );
     let index = nearest(y);
 
     if (startY !== null && startY >= first - EPS && startY <= last + EPS) {
       const from = nearest(startY);
       const moved = y - startY;
       const size = (last - first) / (points.length - 1);
-      if (moved > size * CONFIG.swipeThreshold) index = Math.min(from + 1, points.length - 1);
-      else if (moved < -size * CONFIG.swipeThreshold) index = Math.max(from - 1, 0);
+      if (moved > size * CONFIG.swipeThreshold)
+        index = Math.min(from + 1, points.length - 1);
+      else if (moved < -size * CONFIG.swipeThreshold)
+        index = Math.max(from - 1, 0);
       else index = from;
     }
     snapTo(points[index]);
@@ -209,7 +262,7 @@ function initChronicleSphere() {
       if (!snapping) touchStartY = currentY();
       clearTimeout(settleTimer);
     },
-    { passive: true }
+    { passive: true },
   );
   const touchEnd = () => {
     touching = false;
@@ -248,7 +301,12 @@ function initChronicleSphere() {
   };
 
   wrap.addEventListener("pointerdown", (event) => {
-    if (event.pointerType !== "mouse" || event.button !== 0 || isOverContent(event)) return;
+    if (
+      event.pointerType !== "mouse" ||
+      event.button !== 0 ||
+      isOverContent(event)
+    )
+      return;
     event.preventDefault();
     drag.active = true;
     drag.x = event.clientX;
@@ -273,9 +331,17 @@ function initChronicleSphere() {
   wrap.addEventListener("pointerup", endDrag);
   wrap.addEventListener("pointercancel", endDrag);
   wrap.addEventListener("lostpointercapture", endDrag);
-  wrap.addEventListener("pointerleave", () => wrap.classList.remove("is-sphere-grab"));
-  wrap.addEventListener("selectstart", (event) => drag.active && event.preventDefault());
-  wrap.addEventListener("dragstart", (event) => drag.active && event.preventDefault());
+  wrap.addEventListener("pointerleave", () =>
+    wrap.classList.remove("is-sphere-grab"),
+  );
+  wrap.addEventListener(
+    "selectstart",
+    (event) => drag.active && event.preventDefault(),
+  );
+  wrap.addEventListener(
+    "dragstart",
+    (event) => drag.active && event.preventDefault(),
+  );
 
   const loadThree = () =>
     window.THREE
@@ -320,7 +386,11 @@ function initChronicleSphere() {
     };
 
     const R = 1;
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
     const scene = new THREE.Scene();
@@ -370,7 +440,10 @@ function initChronicleSphere() {
         const r = Math.sqrt(Math.max(0, R * R - y * y));
         const holder = new THREE.Group();
         holder.position.y = y;
-        const disc = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1, 128, 1, false), sliceMat);
+        const disc = new THREE.Mesh(
+          new THREE.CylinderGeometry(r, r, 1, 128, 1, false),
+          sliceMat,
+        );
         const rimTop = new THREE.LineLoop(circleGeo(r), rimMat);
         const rimBot = new THREE.LineLoop(circleGeo(r), rimMat);
         holder.add(disc, rimTop, rimBot);
@@ -402,7 +475,10 @@ function initChronicleSphere() {
         let bestD = -1;
         for (let t = 0; t < 60; t++) {
           const c = { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 };
-          const d = placed.reduce((m, q) => Math.min(m, Math.hypot(c.x - q.x, c.y - q.y)), 9);
+          const d = placed.reduce(
+            (m, q) => Math.min(m, Math.hypot(c.x - q.x, c.y - q.y)),
+            9,
+          );
           if (d > bestD) {
             bestD = d;
             best = c;
@@ -445,7 +521,7 @@ function initChronicleSphere() {
         _tp.set(
           u.tx * hw + Math.sin(time * 0.3 + i) * 0.03,
           u.ty * hh + Math.cos(time * 0.27 + i * 1.7) * 0.03,
-          u.tz
+          u.tz,
         );
         _e.set(u.rx + time * u.wx, u.ry + time * u.wy, u.rz);
         _tq.setFromEuler(_e);
@@ -532,7 +608,9 @@ function initChronicleSphere() {
         const v = randomOnSphere();
         if (pointVecs.every((q) => q.dot(v) < 0.985)) pointVecs.push(v);
       }
-      const geo = new THREE.BufferGeometry().setFromPoints(pointVecs.map((v) => v.clone().multiplyScalar(R)));
+      const geo = new THREE.BufferGeometry().setFromPoints(
+        pointVecs.map((v) => v.clone().multiplyScalar(R)),
+      );
       const tgt = new Float32Array(pointVecs.length * 3);
       const del = new Float32Array(pointVecs.length);
       for (let i = 0; i < pointVecs.length; i++) {
@@ -543,7 +621,9 @@ function initChronicleSphere() {
       }
       geo.setAttribute("aTarget", new THREE.BufferAttribute(tgt, 3));
       geo.setAttribute("aDelay", new THREE.BufferAttribute(del, 1));
-      const order = [...Array(pointVecs.length).keys()].sort(() => Math.random() - 0.5);
+      const order = [...Array(pointVecs.length).keys()].sort(
+        () => Math.random() - 0.5,
+      );
       const rank = new Float32Array(pointVecs.length);
       order.forEach((idx, j) => {
         rank[idx] = (j + 0.5) / pointVecs.length;
@@ -613,7 +693,8 @@ function initChronicleSphere() {
           const t = i / SEG;
           const wa = Math.sin((1 - t) * omega) / so;
           const wb = Math.sin(t * omega) / so;
-          const lift = 1 + P.arcLift * Math.sin(Math.PI * t) * (omega / Math.PI);
+          const lift =
+            1 + P.arcLift * Math.sin(Math.PI * t) * (omega / Math.PI);
           pos[i * 3] = (a.x * wa + b.x * wb) * R * lift;
           pos[i * 3 + 1] = (a.y * wa + b.y * wb) * R * lift;
           pos[i * 3 + 2] = (a.z * wa + b.z * wb) * R * lift;
@@ -731,11 +812,18 @@ function initChronicleSphere() {
         retargetIn = 2.5 + Math.random() * 3.5;
       }
       spawnCooldown -= dt;
-      if (scatter < 0.02 && links.length < targetPairs && (spawnCooldown <= 0 || links.length < lo)) {
+      if (
+        scatter < 0.02 &&
+        links.length < targetPairs &&
+        (spawnCooldown <= 0 || links.length < lo)
+      ) {
         const pair = pickPair();
         if (pair) {
           const v = P.speedVariation;
-          const speed = Math.max(0.05, P.linkSpeed * (1 + (Math.random() * 2 - 1) * v));
+          const speed = Math.max(
+            0.05,
+            P.linkSpeed * (1 + (Math.random() * 2 - 1) * v),
+          );
           links.push(new Link(pair[0], pair[1], speed));
           busy.add(pair[0]);
           busy.add(pair[1]);
@@ -791,9 +879,12 @@ function initChronicleSphere() {
       last = now;
       time += dt;
 
-      scatter += (stageAt(window.scrollY) - scatter) * (1 - Math.exp(-dt * CONFIG.sceneFollow));
+      scatter +=
+        (stageAt(window.scrollY) - scatter) *
+        (1 - Math.exp(-dt * CONFIG.sceneFollow));
       if (Math.abs(scatter) < 1e-4) scatter = 0;
-      linkMat.uniforms.uOpacity.value = P.linkOpacity * (1 - smooth(0, 0.2, scatter));
+      linkMat.uniforms.uOpacity.value =
+        P.linkOpacity * (1 - smooth(0, 0.2, scatter));
       pointMat.uniforms.uScatter.value = scatter;
       pointMat.uniforms.uTime.value = time;
 
@@ -825,4 +916,112 @@ function initChronicleSphere() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", initChronicleSphere);
+function initChronicleTeam() {
+  const cards = Array.from(document.querySelectorAll('[data-team="card"]'));
+  if (!cards.length) return;
+
+  const lenis =
+    window.lenis instanceof Object && typeof window.lenis.stop === "function"
+      ? window.lenis
+      : null;
+  let activeModal = null;
+  let opener = null;
+  let inertElements = [];
+
+  cards.forEach((card, index) => {
+    const openButton = card.querySelector('[data-team="open"]');
+    const modal = card.querySelector('[data-team="modal"]');
+    if (!openButton || !modal) return;
+
+    const name =
+      card.querySelector('[data-team="name"]')?.textContent.trim() || "";
+    const heading = modal.querySelector('[data-team="modal-name"]');
+    const closeButton = modal.querySelector('[data-team="close"]');
+    const id = `team-modal-${index + 1}`;
+
+    modal.id = id;
+    modal.tabIndex = -1;
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("data-lenis-prevent", "");
+    if (heading) {
+      heading.id = heading.id || `${id}-name`;
+      modal.setAttribute("aria-labelledby", heading.id);
+    } else {
+      modal.setAttribute("aria-label", name);
+    }
+
+    openButton.type = "button";
+    openButton.setAttribute("aria-label", `${name}, view bio`);
+    openButton.setAttribute("aria-haspopup", "dialog");
+    openButton.setAttribute("aria-controls", id);
+    openButton.addEventListener("click", () => openModal(modal, openButton));
+
+    if (closeButton) {
+      closeButton.type = "button";
+      closeButton.setAttribute("aria-label", "Close");
+      closeButton.querySelectorAll("img").forEach((img) => (img.alt = ""));
+      closeButton.addEventListener("click", closeModal);
+    }
+
+    modal.querySelectorAll("a[href]").forEach((link) => {
+      const network = /linkedin\./i.test(link.href)
+        ? "LinkedIn"
+        : /\/\/(www\.)?(x|twitter)\.com/i.test(link.href)
+          ? "X"
+          : "";
+      if (network && name)
+        link.setAttribute("aria-label", `${network}: ${name}`);
+    });
+
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) closeModal();
+    });
+
+    document.body.appendChild(modal);
+  });
+
+  function openModal(modal, button) {
+    if (activeModal) return;
+    activeModal = modal;
+    opener = button;
+
+    inertElements = Array.from(document.body.children).filter(
+      (el) =>
+        el !== modal && !el.inert && !/^(SCRIPT|STYLE|LINK)$/.test(el.tagName),
+    );
+    inertElements.forEach((el) => (el.inert = true));
+    document.documentElement.classList.add("is-team-modal-open");
+    if (lenis) lenis.stop();
+
+    const panel = modal.querySelector('[data-team="panel"]');
+    if (panel) panel.scrollTop = 0;
+    modal.classList.add("is-open");
+    (modal.querySelector('[data-team="close"]') || modal).focus({
+      preventScroll: true,
+    });
+  }
+
+  function closeModal() {
+    if (!activeModal) return;
+    activeModal.classList.remove("is-open");
+    inertElements.forEach((el) => (el.inert = false));
+    inertElements = [];
+    document.documentElement.classList.remove("is-team-modal-open");
+    if (lenis) lenis.start();
+    if (opener) opener.focus({ preventScroll: true });
+    activeModal = null;
+    opener = null;
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && activeModal) {
+      event.preventDefault();
+      closeModal();
+    }
+  });
+}
+document.addEventListener("DOMContentLoaded", () => {
+  initChronicleSphere();
+  initChronicleTeam();
+});

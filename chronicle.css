@@ -1,0 +1,118 @@
+html {
+  scrollbar-gutter: stable;
+}
+
+html.is-team-modal-open {
+  overflow: hidden;
+}
+
+[data-team="image"] {
+  overflow: hidden;
+}
+
+[data-team="open"] {
+  opacity: 1;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+[data-team="open"]:focus-visible,
+[data-team="modal"] :focus-visible {
+  outline: 0.1875rem solid #15b6de;
+  outline-offset: 0.25rem;
+}
+
+[data-team="modal"] {
+  inset: 0;
+  width: auto;
+  height: auto;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 450ms ease, visibility 0s linear 450ms;
+}
+
+[data-team="modal"].is-open {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 400ms ease-out, visibility 0s;
+}
+
+[data-team="panel"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background-color: var(--_color---primary--black, #000);
+}
+
+[data-team="content"] > * {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+[data-team="modal"].is-open [data-team="content"] > * {
+  opacity: 1;
+  transition: opacity 600ms ease-out;
+  transition-delay: calc(250ms + var(--team-stagger, 0) * 70ms);
+}
+
+[data-team="content"] > :nth-child(2) { --team-stagger: 1; }
+[data-team="content"] > :nth-child(3) { --team-stagger: 2; }
+[data-team="content"] > :nth-child(4) { --team-stagger: 3; }
+
+[data-team="close"]::after,
+[data-team="modal"] a[data-cta-border]::after {
+  content: "";
+  position: absolute;
+  inset: -0.625rem;
+}
+
+[data-team="modal"] a[data-cta-border]::after {
+  inset: -0.25rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-team="image"] img {
+    transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  [data-team="card"]:has([data-team="open"]:focus-visible) [data-team="image"] img {
+    transform: scale(1.05);
+  }
+
+  [data-team="card"]:has([data-team="open"]:focus-visible) [data-team-border-gradient]::before {
+    transform: rotate(45deg);
+  }
+
+  [data-team="panel"] {
+    transform: translate3d(100%, 0, 0);
+    transition: transform 450ms cubic-bezier(0.55, 0, 1, 0.45);
+  }
+
+  [data-team="modal"].is-open [data-team="panel"] {
+    transform: none;
+    transition: transform 800ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  [data-team="content"] > * {
+    transform: translate3d(0, 0.75rem, 0);
+    transition: opacity 200ms ease, transform 200ms ease;
+  }
+
+  [data-team="modal"].is-open [data-team="content"] > * {
+    transform: none;
+    transition: opacity 600ms ease-out, transform 800ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: calc(250ms + var(--team-stagger, 0) * 70ms);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  [data-team="card"]:hover [data-team="image"] img {
+    transform: scale(1.05);
+  }
+
+  [data-team="card"]:hover [data-team-border-gradient]::before {
+    transform: rotate(45deg);
+  }
+}
