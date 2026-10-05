@@ -302,8 +302,8 @@ function initChronicleSphere() {
       rimColor: "#145476",
       points: 90,
       pointSizePx: 6,
-      pointColor: "#d6d6d6",
-      pointBorder: "#d6d6d6",
+      pointColor: "#003052",
+      pointBorder: "#003052",
       minPairs: 6,
       maxPairs: 12,
       linkSpeed: 0.8,
@@ -312,7 +312,7 @@ function initChronicleSphere() {
       linkG2: "#1e6594",
       linkG3: "#75b9d7",
       dropPoints: 0.75,
-      linkOpacity: 0.95,
+      linkOpacity: 0.4,
       linkWidth: 3,
       arcLift: 0,
       spin: -0.06,
@@ -330,7 +330,7 @@ function initChronicleSphere() {
     const spin = new THREE.Group();
     tilt.add(spin);
     scene.add(tilt);
-    tilt.rotation.set(0.953, 0, -0.62);
+    tilt.rotation.set(0.954, 0, -0.62);
 
     let worldPerPx = 0.003;
     let halfW = 1.5;
