@@ -1021,7 +1021,221 @@ function initChronicleTeam() {
     }
   });
 }
+
+function initChronicleTech() {
+  const root = document.querySelector('[data-tech="visual"]');
+  if (!root) return;
+
+  const steps = Array.from(root.querySelectorAll('[data-tech="step"]'));
+  const ring = root.querySelector('[data-tech="ring"]');
+  const canvas = root.querySelector('[data-tech="canvas"]');
+  const text = document.querySelector('[data-tech="text"]');
+  const titles = Array.from(
+    document.querySelector('[data-tech="titles"]')?.children || [],
+  );
+  const descriptions = Array.from(
+    document.querySelector('[data-tech="descriptions"]')?.children || [],
+  );
+  if (steps.length !== 4) return;
+
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+
+  const CONFIG = {
+    riveUrl: "https://unpkg.com/@rive-app/canvas@2.44.0/rive.js",
+    animation: "Timeline 1",
+    loop: 12,
+    // Seconds in the Rive timeline where Read, Resolve, Return and Generate begin.
+    bounds: [2.2, 5.6, 8.3, 11.3],
+    // Frames where each step's drawing has settled; clicks land and hold here.
+    holds: [2.0, 5.4, 7.5, 11.0],
+    fastForwardRate: 6,
+    ringDraw: 1.2,
+    ringErase: 0.7,
+  };
+
+  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+  const ease = (v) => {
+    const x = clamp(v, 0, 1);
+    return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  };
+  const wrap = (v) => ((v % CONFIG.loop) + CONFIG.loop) % CONFIG.loop;
+
+  function stepAt(t) {
+    const [read, resolve, ret, generate] = CONFIG.bounds;
+    if (t >= generate || t < read) return 0;
+    if (t < resolve) return 1;
+    if (t < ret) return 2;
+    return 3;
+  }
+
+  function ringAt(t) {
+    const [read, resolve, ret, generate] = CONFIG.bounds;
+    if (t >= generate) return [4 * ease((t - generate) / CONFIG.ringErase), 4];
+    if (t < read) return [0, 0];
+    if (t < resolve) return [0, ease((t - read) / CONFIG.ringDraw)];
+    if (t < ret) return [0, 1 + ease((t - resolve) / CONFIG.ringDraw)];
+    return [0, 2 + 2 * ease((t - ret) / (CONFIG.ringDraw * 2))];
+  }
+
+  if (text) {
+    text.id = text.id || "tech-step-text";
+    text.setAttribute("aria-live", "off");
+    steps.forEach((step) => step.setAttribute("aria-controls", text.id));
+  }
+
+  let t = reducedMotion ? CONFIG.holds[0] : 0;
+  let tween = null;
+  let activeStep = -1;
+  let userPaused = reducedMotion;
+  let focusPaused = false;
+  let inView = false;
+  let rafId = 0;
+  let last = 0;
+  let riveInstance = null;
+
+  function setActive(index) {
+    if (index === activeStep) return;
+    activeStep = index;
+    steps.forEach((step, i) => {
+      if (i === index) step.setAttribute("aria-current", "step");
+      else step.removeAttribute("aria-current");
+    });
+    [titles, descriptions].forEach((items) =>
+      items.forEach((el, i) => el.classList.toggle("is-active", i === index)),
+    );
+  }
+
+  function render() {
+    const [a, b] = ringAt(t);
+    if (ring) {
+      ring.style.strokeDasharray = `${Math.max(0, b - a)} 4`;
+      ring.style.strokeDashoffset = `${-a}`;
+    }
+    setActive(tween ? tween.index : stepAt(t));
+    if (riveInstance) riveInstance.scrub(CONFIG.animation, t);
+  }
+
+  const autoplaying = () => inView && !userPaused && !focusPaused;
+
+  function tick(now) {
+    rafId = 0;
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (tween) {
+      const p = Math.min(1, (now - tween.start) / (tween.duration * 1000));
+      t = wrap(tween.from + tween.distance * ease(p));
+      if (p >= 1) tween = null;
+    } else if (autoplaying()) {
+      t = wrap(t + dt);
+    }
+    render();
+    if (tween || autoplaying()) wake();
+  }
+
+  function wake() {
+    if (rafId) return;
+    if (!last) last = performance.now();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function goTo(index) {
+    userPaused = true;
+    if (text) text.setAttribute("aria-live", "polite");
+    const target = CONFIG.holds[index];
+    const distance = stepAt(t) === index ? target - t : wrap(target - t);
+    if (reducedMotion || Math.abs(distance) < 0.01) {
+      tween = null;
+      t = target;
+      render();
+      return;
+    }
+    tween = {
+      index,
+      from: t,
+      distance,
+      duration: clamp(Math.abs(distance) / CONFIG.fastForwardRate, 0.5, 1.6),
+      start: performance.now(),
+    };
+    last = 0;
+    wake();
+  }
+
+  steps.forEach((step, index) =>
+    step.addEventListener("click", () => goTo(index)),
+  );
+
+  root.addEventListener("focusin", () => {
+    focusPaused = true;
+  });
+  root.addEventListener("focusout", (event) => {
+    if (root.contains(event.relatedTarget)) return;
+    focusPaused = false;
+    last = 0;
+    wake();
+  });
+
+  new IntersectionObserver(
+    ([entry]) => {
+      inView = entry.isIntersecting;
+      if (inView) {
+        last = 0;
+        wake();
+      }
+    },
+    { threshold: 0.35 },
+  ).observe(root);
+
+  const loadRive = () =>
+    window.rive
+      ? Promise.resolve()
+      : new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = CONFIG.riveUrl;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+
+  const riveObserver = new IntersectionObserver(
+    ([entry]) => {
+      if (!entry.isIntersecting) return;
+      riveObserver.disconnect();
+      const src = root.getAttribute("data-tech-src");
+      if (!src || !canvas) return;
+      loadRive()
+        .then(() => {
+          const instance = new window.rive.Rive({
+            src,
+            canvas,
+            animations: CONFIG.animation,
+            autoplay: false,
+            layout: new window.rive.Layout({
+              fit: window.rive.Fit.Contain,
+              alignment: window.rive.Alignment.Center,
+            }),
+            onLoad: () => {
+              instance.resizeDrawingSurfaceToCanvas();
+              riveInstance = instance;
+              render();
+            },
+          });
+          new ResizeObserver(() =>
+            instance.resizeDrawingSurfaceToCanvas(),
+          ).observe(canvas);
+        })
+        .catch((error) => console.warn("[tech] Rive failed to load", error));
+    },
+    { rootMargin: "50% 0px" },
+  );
+  riveObserver.observe(root);
+
+  render();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initChronicleSphere();
   initChronicleTeam();
+  initChronicleTech();
 });

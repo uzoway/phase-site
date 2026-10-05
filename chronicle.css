@@ -116,3 +116,32 @@ html.is-team-modal-open {
     transform: rotate(45deg);
   }
 }
+
+[data-tech="titles"],
+[data-tech="descriptions"] {
+  display: grid;
+}
+
+[data-tech="titles"] > *,
+[data-tech="descriptions"] > * {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 300ms ease, visibility 0s linear 300ms;
+}
+
+[data-tech="titles"] > .is-active,
+[data-tech="descriptions"] > .is-active,
+[data-tech="titles"]:not(:has(> .is-active)) > :first-child,
+[data-tech="descriptions"]:not(:has(> .is-active)) > :first-child {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 500ms ease 150ms, visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-tech="titles"] > *,
+  [data-tech="descriptions"] > * {
+    transition: none;
+  }
+}

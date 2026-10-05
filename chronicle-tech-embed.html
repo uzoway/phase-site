@@ -1,0 +1,164 @@
+<style>
+  [data-tech="visual"] {
+    --tech-cyan: var(--_color---primary--cyan, #15b6de);
+    --tech-label: #7fd6f2;
+    --tech-active: var(--_color---primary--white, #fff);
+    --tech-square: 0.75rem;
+    --tech-pad: 0.375rem;
+    position: relative;
+    width: min(34rem, 42vw, 70svh);
+    aspect-ratio: 1;
+    margin-inline: auto;
+  }
+
+  @media screen and (max-width: 991px) {
+    [data-tech="visual"] {
+      width: min(34rem, 100%);
+    }
+  }
+
+  [data-tech="stage"] {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  [data-tech="ring-svg"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  [data-tech="ring"] {
+    fill: none;
+    stroke: var(--tech-cyan);
+    stroke-width: 0.25;
+    stroke-dasharray: 0 4;
+  }
+
+  [data-tech="clip"] {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  [data-tech="canvas"] {
+    position: absolute;
+    left: -5.1%;
+    top: -1%;
+    width: 121.5%;
+    height: 110.5%;
+  }
+
+  [data-tech="steps"] {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  [data-tech-step] {
+    position: absolute;
+    width: 0;
+    height: 0;
+  }
+
+  [data-tech-step="generate"] { left: 50%; top: 8%; }
+  [data-tech-step="read"] { left: 92%; top: 50%; }
+  [data-tech-step="resolve"] { left: 50%; top: 92%; }
+  [data-tech-step="return"] { left: 8%; top: 50%; }
+
+  [data-tech="step"] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: var(--tech-pad) 0.5rem;
+    border: 0;
+    background: transparent;
+    color: var(--tech-label);
+    font-family: var(--_typography---fonts--font-c, ui-monospace, monospace);
+    font-size: 0.75rem;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    transform: translate(-50%, calc(-1 * (var(--tech-pad) + var(--tech-square) / 2)));
+  }
+
+  [data-tech-step="generate"] [data-tech="step"] {
+    flex-direction: column-reverse;
+    transform: translate(-50%, calc(-100% + var(--tech-pad) + var(--tech-square) / 2));
+  }
+
+  [data-tech="square"] {
+    flex: none;
+    width: var(--tech-square);
+    height: var(--tech-square);
+    background-color: var(--tech-cyan);
+  }
+
+  [data-tech="step"][aria-current="step"] {
+    color: var(--tech-active);
+  }
+
+  [data-tech="step"][aria-current="step"] [data-tech="square"] {
+    background-color: var(--tech-active);
+  }
+
+  [data-tech="step"]:focus-visible {
+    outline: 0.1875rem solid var(--tech-cyan);
+    outline-offset: 0.25rem;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    [data-tech="step"]:hover {
+      color: var(--tech-active);
+    }
+
+    [data-tech="step"]:hover [data-tech="square"] {
+      background-color: var(--tech-active);
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-tech="step"],
+    [data-tech="square"] {
+      transition: color 300ms ease, background-color 300ms ease;
+    }
+  }
+</style>
+
+<div data-tech="visual" data-tech-src="PASTE_RIV_URL_HERE">
+  <div data-tech="stage" aria-hidden="true">
+    <svg data-tech="ring-svg" viewBox="0 0 100 100" focusable="false">
+      <circle data-tech="ring" cx="50" cy="50" r="42" pathLength="4" transform="rotate(-90 50 50)"></circle>
+    </svg>
+    <div data-tech="clip">
+      <canvas data-tech="canvas"></canvas>
+    </div>
+  </div>
+  <ol data-tech="steps" aria-label="Technology loop">
+    <li data-tech-step="generate">
+      <button type="button" data-tech="step"><span data-tech="square"></span><span>Generate</span></button>
+    </li>
+    <li data-tech-step="read">
+      <button type="button" data-tech="step"><span data-tech="square"></span><span>Read</span></button>
+    </li>
+    <li data-tech-step="resolve">
+      <button type="button" data-tech="step"><span data-tech="square"></span><span>Resolve</span></button>
+    </li>
+    <li data-tech-step="return">
+      <button type="button" data-tech="step"><span data-tech="square"></span><span>Return</span></button>
+    </li>
+  </ol>
+</div>
