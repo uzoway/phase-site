@@ -133,6 +133,7 @@ function initNumenosMedia() {
     // buffered, so it never freezes mid-animation.
     storyStartBufferMs: 3000,
     storyStallTimeoutMs: 3000,
+    storyFirstFrameMaxWaitMs: 350,
     storyIntroGapVh: 40,
 
     viewportFadeScrub: 0.28,
@@ -244,6 +245,53 @@ function initNumenosMedia() {
       video.disablePictureInPicture = true;
   }
 
+  // iOS Low Power Mode refuses every play() the visitor didn't start, in any
+  // browser on the phone. Starting a video inside a tap unlocks it for good,
+  // so the first tap anywhere starts and stops every video once, then
+  // whatever should be moving resumes.
+  const unlockCallbacks = [];
+  let unlockArmed = false;
+
+  function onPlaybackUnlocked(callback) {
+    unlockCallbacks.push(callback);
+  }
+
+  function armPlaybackUnlock() {
+    if (unlockArmed) return;
+    unlockArmed = true;
+    const events = ["touchend", "click", "keydown"];
+    function unlock() {
+      events.forEach(function (type) {
+        document.removeEventListener(type, unlock, true);
+      });
+      unlockArmed = false;
+      document.querySelectorAll("video").forEach(function (video) {
+        // play() on an ended video would rewind it.
+        if (!video.paused || video.ended) return;
+        try {
+          const promise = video.play();
+          video.pause();
+          if (promise && typeof promise.catch === "function")
+            promise.catch(function () {});
+        } catch (error) {}
+      });
+      activeMedia.forEach(function (media) {
+        safePlay(media.video);
+      });
+      unlockCallbacks.forEach(function (callback) {
+        callback();
+      });
+    }
+    events.forEach(function (type) {
+      document.addEventListener(type, unlock, true);
+    });
+  }
+
+  function notePlaybackRefused(error) {
+    if (error && error.name === "NotAllowedError" && !document.hidden)
+      armPlaybackUnlock();
+  }
+
   // Resolves true when playback started, false when it was refused (e.g. iOS
   // Low Power Mode) so callers can fall back to still frames.
   function safePlay(video) {
@@ -253,6 +301,7 @@ function initNumenosMedia() {
     try {
       promise = video.play();
     } catch (error) {
+      notePlaybackRefused(error);
       return Promise.resolve(false);
     }
     if (!promise || typeof promise.then !== "function")
@@ -261,7 +310,8 @@ function initNumenosMedia() {
       function () {
         return true;
       },
-      function () {
+      function (error) {
+        notePlaybackRefused(error);
         return false;
       },
     );
@@ -353,6 +403,38 @@ function initNumenosMedia() {
         video.currentTime = time;
       } catch (error) {
         finish();
+      }
+    });
+  }
+
+  // Resolves once the playing video has handed a new frame to the compositor
+  // (or after `maxWaitMs`). Revealing a clip only then avoids showing a stale
+  // frame, or a frozen one while a phone's decoder spins back up.
+  function nextPresentedFrame(video, maxWaitMs) {
+    return new Promise(function (resolve) {
+      let settled = false;
+      let callbackId = null;
+      const timeoutId = setTimeout(finish, maxWaitMs);
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        if (callbackId !== null) {
+          try {
+            video.cancelVideoFrameCallback(callbackId);
+          } catch (error) {}
+        }
+        resolve();
+      }
+      if (typeof video.requestVideoFrameCallback === "function") {
+        callbackId = video.requestVideoFrameCallback(function () {
+          callbackId = null;
+          finish();
+        });
+      } else {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(finish);
+        });
       }
     });
   }
@@ -862,8 +944,8 @@ function initNumenosMedia() {
       media.revealed = true;
       gsap.set(video, { opacity: 0 });
     }
-    safePlay(video);
     gsap.to(video, { opacity: 1, duration: duration, ease: "power2.out" });
+    return safePlay(video);
   }
 
   function restartWithFade(media) {
@@ -1486,8 +1568,9 @@ function initNumenosMedia() {
 
     let activationId = 0;
     let shouldBeActive = false;
-    // `playOnce`: the animation runs a single time per visit; after that its
-    // last frame stays on screen whenever the section is.
+    // `playOnce`: the animation runs a single time per visit and then holds
+    // its last frame. Once the layer has been wiped away (above or below) it
+    // rewinds, so the next visit draws in again.
     let finished = false;
 
     if (options.playOnce) {
@@ -1495,6 +1578,24 @@ function initNumenosMedia() {
         finished = true;
         deactivateMedia(media);
       });
+      let layerVisible = false;
+      new MutationObserver(function () {
+        const visible = media.item.style.visibility !== "hidden";
+        if (visible === layerVisible) return;
+        layerVisible = visible;
+        if (!visible) rewindForNextVisit();
+        else if (shouldBeActive && !media.active) activatePlayback();
+      }).observe(media.item, { attributes: true, attributeFilter: ["style"] });
+    }
+
+    function rewindForNextVisit() {
+      finished = false;
+      activationId += 1;
+      deactivateMedia(media);
+      if (!media.loaded) return;
+      try {
+        media.video.currentTime = FIRST_FRAME_TIME;
+      } catch (error) {}
     }
 
     function showLastFrame() {
@@ -1528,15 +1629,22 @@ function initNumenosMedia() {
       activeMedia.add(media);
       disableSmoothLoop(media);
       media.video.loop = false;
+      const requestId = activationId;
       revealAndPlay(
         media,
         media.revealed ? CONFIG.loopFadeIn : CONFIG.revealDuration,
-      );
+      ).then(function (played) {
+        // Playback refused: rest on the connected network rather than the
+        // empty first frame.
+        if (played || document.hidden || requestId !== activationId) return;
+        finished = true;
+        showLastFrame();
+      });
     }
 
     // Parks the video on its first frame. With `holdVisible` that frame stays
     // on screen, so a wipe reveals the start of the animation, not the poster.
-    function holdAtStart(keepVisible) {
+    function holdAtStart() {
       if (finished) {
         showLastFrame();
         return;
@@ -1563,10 +1671,8 @@ function initNumenosMedia() {
       try {
         media.video.currentTime = 0;
       } catch (error) {}
-      if (!keepVisible) {
-        media.revealed = false;
-        gsap.set(media.video, { opacity: 0 });
-      }
+      media.revealed = false;
+      gsap.set(media.video, { opacity: 0 });
     }
 
     function activatePlayback() {
@@ -1600,7 +1706,7 @@ function initNumenosMedia() {
     }
 
     function holdIfIdle() {
-      if (options.holdAtStart && !shouldBeActive) holdAtStart(false);
+      if (options.holdAtStart && !shouldBeActive) holdAtStart();
     }
 
     whenNear(section, CONFIG.prepareStart, function () {
@@ -1644,8 +1750,7 @@ function initNumenosMedia() {
       onLeaveBack: function () {
         shouldBeActive = false;
         activationId += 1;
-        if (options.resetOnLeaveBack) holdAtStart(true);
-        else deactivateMedia(media);
+        deactivateMedia(media);
       },
     });
 
@@ -1759,6 +1864,9 @@ function initNumenosMedia() {
       }
       return clip.video;
     }
+    // Every player exists from the start so a Low Power Mode unlock reaches
+    // them all; each still only downloads when its clip is needed.
+    clipList.forEach(clipVideo);
 
     function loadClip(clip) {
       if (!clip) return Promise.resolve(false);
@@ -1808,6 +1916,12 @@ function initNumenosMedia() {
     let shown = null;
     let restReady = false;
     let autoplayBlocked = false;
+
+    onPlaybackUnlocked(function () {
+      if (!autoplayBlocked) return;
+      autoplayBlocked = false;
+      if (active && !motion) reconcile();
+    });
 
     function setFallbacksVisible(visible) {
       if (fallbackImages.length)
@@ -1873,7 +1987,7 @@ function initNumenosMedia() {
         video.pause();
         stageClip(clip);
         const resolvedTime = typeof time === "function" ? time(video) : time;
-        seekTo(video, resolvedTime).then(function () {
+        presentFrame(video, resolvedTime).then(function () {
           if (id !== opId) return;
           showClip(clip, fade);
           restReady = true;
@@ -1928,10 +2042,16 @@ function initNumenosMedia() {
         video.loop = true;
         video.playbackRate = 1;
         stageClip(restClip);
-        seekTo(video, FIRST_FRAME_TIME)
+        presentFrame(video, FIRST_FRAME_TIME)
           .then(function () {
             if (id !== opId) return false;
             return autoplayBlocked ? false : safePlay(video);
+          })
+          .then(function (played) {
+            if (id !== opId) return;
+            return played
+              ? nextPresentedFrame(video, CONFIG.storyFirstFrameMaxWaitMs)
+              : null;
           })
           .then(function () {
             if (id !== opId) return;
@@ -2040,11 +2160,11 @@ function initNumenosMedia() {
       video.pause();
       stageClip(m.clip);
       const startTime = gsap.utils.clamp(
-        0,
+        FIRST_FRAME_TIME,
         duration - 0.05,
         m.fraction * duration,
       );
-      seekTo(video, startTime)
+      presentFrame(video, startTime)
         .then(function () {
           if (!motion || motion.id !== m.id) return null;
           video.playbackRate = m.rate;
@@ -2058,8 +2178,16 @@ function initNumenosMedia() {
             return;
           }
           m.started = true;
-          showClip(m.clip, fadeFor(m.clip));
           watchPlayback(m);
+          // The frame on screen matches the clip's start, so it stays up
+          // until the clip is really moving.
+          return nextPresentedFrame(
+            video,
+            CONFIG.storyFirstFrameMaxWaitMs,
+          ).then(function () {
+            if (!motion || motion.id !== m.id) return;
+            showClip(m.clip, fadeFor(m.clip));
+          });
         });
     }
 
@@ -2916,6 +3044,11 @@ function initNumenosMedia() {
     gsap.set(map, { autoAlpha: 0 });
     map.setAttribute("aria-hidden", "true");
     gsap.set(cLayersMedia.video, { opacity: CONFIG.cLayersIntroOpacity });
+    // The poster stands in for the video until it has loaded, so it shows the
+    // closed rocks at the intro's opacity too.
+    gsap.set(cLayersMedia.item.querySelectorAll(".bg-images_img"), {
+      opacity: CONFIG.cLayersIntroOpacity,
+    });
 
     const freeze = createFreezeFrame(
       cLayersMedia.video,
@@ -3295,7 +3428,12 @@ function initNumenosMedia() {
           video.addEventListener("timeupdate", check);
           video.addEventListener("ended", finish);
           const playPromise = video.play();
-          if (playPromise !== undefined) playPromise.catch(finish);
+          if (playPromise !== undefined) {
+            playPromise.catch(function (error) {
+              notePlaybackRefused(error);
+              finish();
+            });
+          }
           watchFrame();
         });
       });
@@ -3733,7 +3871,6 @@ function initNumenosMedia() {
       holdAtStart: true,
       holdVisible: true,
       playOnce: true,
-      resetOnLeaveBack: true,
     });
   } catch (error) {
     reportError("looping playback", error);
