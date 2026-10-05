@@ -24,6 +24,7 @@ function initChronicleSphere() {
     wheelGestureGapMs: 200,
     settleDelayMs: 140,
     swipeThreshold: 0.12,
+    swipeTriggerPx: 24,
     dragBlock:
       "a, button, input, textarea, select, label, img, svg, video, [data-sphere-nodrag]",
     // Only the rendered lines of these block a drag, not their whole box.
@@ -116,18 +117,12 @@ function initChronicleSphere() {
     }
   }
 
-  function handleStepIntent(direction, goal) {
-    const now = performance.now();
-    const newGesture = now - lastWheel > CONFIG.wheelGestureGapMs;
-    lastWheel = now;
-    if (snapping || (swallowGesture && !newGesture)) return true;
-    swallowGesture = false;
-
+  function stepTarget(direction, goal) {
     measure();
     const y = currentY();
     const first = points[0];
     const last = points[points.length - 1];
-    let target = null;
+    let target;
 
     if (direction > 0) {
       if (y >= first - EPS && y < last - EPS)
@@ -138,8 +133,18 @@ function initChronicleSphere() {
         target = [...points].reverse().find((p) => p < y - EPS);
       else if (y > last + EPS && goal < last) target = last;
     }
+    return target ?? null;
+  }
 
-    if (target === null || target === undefined) return false;
+  function handleStepIntent(direction, goal) {
+    const now = performance.now();
+    const newGesture = now - lastWheel > CONFIG.wheelGestureGapMs;
+    lastWheel = now;
+    if (snapping || (swallowGesture && !newGesture)) return true;
+    swallowGesture = false;
+
+    const target = stepTarget(direction, goal);
+    if (target === null) return false;
     snapTo(target);
     return true;
   }
@@ -255,14 +260,47 @@ function initChronicleSphere() {
   if (lenis) lenis.on("scroll", scheduleSettle);
   else window.addEventListener("scroll", scheduleSettle, { passive: true });
 
+  let swipe = null;
+
   window.addEventListener(
     "touchstart",
-    () => {
+    (event) => {
       touching = true;
       if (!snapping) touchStartY = currentY();
       clearTimeout(settleTimer);
+      const touch = event.touches[0];
+      swipe =
+        event.touches.length === 1
+          ? { x: touch.clientX, y: touch.clientY, target: undefined }
+          : null;
     },
     { passive: true },
+  );
+
+  window.addEventListener(
+    "touchmove",
+    (event) => {
+      if (!swipe || (lenis && lenis.isStopped)) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - swipe.x;
+      const dy = swipe.y - touch.clientY;
+      if (swipe.target === undefined) {
+        if (!dx && !dy) return;
+        swipe.target =
+          Math.abs(dx) > Math.abs(dy)
+            ? null
+            : snapping
+              ? currentY()
+              : stepTarget(Math.sign(dy), currentY() + Math.sign(dy));
+      }
+      if (swipe.target === null) return;
+      if (event.cancelable) event.preventDefault();
+      if (!snapping && Math.abs(dy) >= CONFIG.swipeTriggerPx) {
+        touchStartY = null;
+        snapTo(swipe.target);
+      }
+    },
+    { passive: false },
   );
   const touchEnd = () => {
     touching = false;
@@ -1050,9 +1088,12 @@ function initChronicleTech() {
     bounds: [2.2, 5.6, 8.3, 11.3],
     // Frames where each step's drawing has settled; clicks land and hold here.
     holds: [2.0, 5.4, 7.5, 11.0],
-    fastForwardRate: 6,
+    seekRate: 8,
+    seekMin: 0.4,
+    seekMax: 0.9,
     ringDraw: 1.2,
     ringErase: 0.7,
+    textLeaveMs: 360,
   };
 
   const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -1095,6 +1136,41 @@ function initChronicleTech() {
   let last = 0;
   let riveInstance = null;
 
+  function splitWords(el) {
+    const label = el.textContent.trim().replace(/\s+/g, " ");
+    const nodes = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    let i = 0;
+    nodes.forEach((node) => {
+      const fragment = document.createDocumentFragment();
+      node.textContent.split(/(\s+)/).forEach((part) => {
+        if (!part) return;
+        if (/^\s+$/.test(part)) {
+          fragment.append(part);
+          return;
+        }
+        const word = document.createElement("span");
+        word.setAttribute("data-tech-word", "");
+        word.style.setProperty("--i", i++);
+        word.textContent = part;
+        fragment.append(word);
+      });
+      node.replaceWith(fragment);
+    });
+    const visual = document.createElement("span");
+    visual.setAttribute("aria-hidden", "true");
+    while (el.firstChild) visual.append(el.firstChild);
+    const spoken = document.createElement("span");
+    spoken.setAttribute("data-tech-sr", "");
+    spoken.textContent = label;
+    el.append(spoken, visual);
+  }
+
+  [...titles, ...descriptions].forEach(splitWords);
+
+  const leaveTimers = new Map();
+
   function setActive(index) {
     if (index === activeStep) return;
     activeStep = index;
@@ -1103,7 +1179,20 @@ function initChronicleTech() {
       else step.removeAttribute("aria-current");
     });
     [titles, descriptions].forEach((items) =>
-      items.forEach((el, i) => el.classList.toggle("is-active", i === index)),
+      items.forEach((el, i) => {
+        const leaving = el.classList.contains("is-active") && i !== index;
+        el.classList.toggle("is-active", i === index);
+        clearTimeout(leaveTimers.get(el));
+        el.classList.toggle("is-leaving", leaving);
+        if (leaving)
+          leaveTimers.set(
+            el,
+            setTimeout(
+              () => el.classList.remove("is-leaving"),
+              CONFIG.textLeaveMs,
+            ),
+          );
+      }),
     );
   }
 
@@ -1144,7 +1233,8 @@ function initChronicleTech() {
     userPaused = true;
     if (text) text.setAttribute("aria-live", "polite");
     const target = CONFIG.holds[index];
-    const distance = stepAt(t) === index ? target - t : wrap(target - t);
+    let distance = wrap(target - t);
+    if (distance > CONFIG.loop / 2) distance -= CONFIG.loop;
     if (reducedMotion || Math.abs(distance) < 0.01) {
       tween = null;
       t = target;
@@ -1155,7 +1245,11 @@ function initChronicleTech() {
       index,
       from: t,
       distance,
-      duration: clamp(Math.abs(distance) / CONFIG.fastForwardRate, 0.5, 1.6),
+      duration: clamp(
+        Math.abs(distance) / CONFIG.seekRate,
+        CONFIG.seekMin,
+        CONFIG.seekMax,
+      ),
       start: performance.now(),
     };
     last = 0;
