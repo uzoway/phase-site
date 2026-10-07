@@ -41,6 +41,20 @@ function initNumenosMedia() {
     // waiting for the hero this long after the page started loading.
     loaderMaxWaitMs: 10000,
     loaderFadeDuration: 0.8,
+    loaderLogoSpeed: 1.25,
+    // Share of the nav logo image's width its artwork covers (the SVG file
+    // has a little room on the right).
+    navLogoInkWidth: 270.25 / 273,
+    // After the draw-in: a short hold, then the logo flies to the nav while
+    // the cream wipes up off the hero, the hero copy settles in and the nav
+    // links fade in as the logo lands.
+    loaderLogoHold: 0.3,
+    loaderFlightDuration: 1.1,
+    loaderRevealDelay: 0.25,
+    loaderRevealDuration: 1.1,
+    loaderCopyDelay: 0.45,
+    loaderCopyDuration: 0.9,
+    loaderNavFadeDuration: 0.6,
     loaderLottieUrl:
       "https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js",
     heroWholeFileMaxBytes: 24 * 1024 * 1024,
@@ -148,6 +162,8 @@ function initNumenosMedia() {
     heroFadeHold: 0.22,
 
     mobile: {
+      loaderFlightDuration: 0.9,
+      loaderRevealDuration: 0.95,
       playbackBandStart: "top 110%",
       staticRevealStart: "top 60%",
       staticRevealEnd: "top 15%",
@@ -491,6 +507,89 @@ function initNumenosMedia() {
     });
   }
 
+  // Screen box of what a Lottie SVG actually paints (its canvas has margins).
+  // Outlines (the logo's ring) are drawn half outside their path's box.
+  function getArtworkRect(svg) {
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    svg.querySelectorAll("path").forEach(function (path) {
+      const rect = path.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const style = getComputedStyle(path);
+      let pad = 0;
+      if (style.stroke !== "none" && parseFloat(style.strokeOpacity) > 0) {
+        const matrix = path.getScreenCTM();
+        const scale = matrix ? Math.hypot(matrix.a, matrix.b) : 1;
+        pad = ((parseFloat(style.strokeWidth) || 0) * scale) / 2;
+      }
+      left = Math.min(left, rect.left - pad);
+      top = Math.min(top, rect.top - pad);
+      right = Math.max(right, rect.right + pad);
+      bottom = Math.max(bottom, rect.bottom + pad);
+    });
+    if (!(right > left && bottom > top)) return null;
+    return { left, top, width: right - left, height: bottom - top };
+  }
+
+  // The nav fades its lower edge out with a vertical mask, which also fades
+  // the bottom of its logo. Returns a setter that blends that same fade onto
+  // `element`, which will end up at `rect` (0 = none, 1 = exactly the nav's).
+  function createNavMaskBlend(nav, element, rect) {
+    const style = getComputedStyle(nav);
+    const value =
+      style.maskImage && style.maskImage !== "none"
+        ? style.maskImage
+        : style.webkitMaskImage;
+    const navStops = [];
+    const pattern = /rgba?\(([^)]*)\)\s+(-?[\d.]+)%/g;
+    let match;
+    while (value && (match = pattern.exec(value))) {
+      const channels = match[1].split(/[\s,/]+/).filter(Boolean);
+      navStops.push([
+        parseFloat(match[2]) / 100,
+        channels.length > 3 ? parseFloat(channels[3]) : 1,
+      ]);
+    }
+    if (navStops.length < 2) return function () {};
+
+    const box = nav.getBoundingClientRect();
+    function navAlpha(y) {
+      const f = (y - box.top) / box.height;
+      if (f < 0 || f > 1) return 0;
+      if (f <= navStops[0][0]) return navStops[0][1];
+      for (let i = 1; i < navStops.length; i += 1) {
+        const [f1, a1] = navStops[i];
+        if (f <= f1) {
+          const [f0, a0] = navStops[i - 1];
+          return a0 + ((a1 - a0) * (f - f0)) / Math.max(f1 - f0, 1e-6);
+        }
+      }
+      return navStops[navStops.length - 1][1];
+    }
+    const samples = 12;
+    const finalAlphas = [];
+    for (let i = 0; i <= samples; i += 1) {
+      finalAlphas.push(navAlpha(rect.top + (rect.height * i) / samples));
+    }
+    return function (mix) {
+      if (mix <= 0) {
+        element.style.webkitMaskImage = "";
+        element.style.maskImage = "";
+        return;
+      }
+      const gradient = `linear-gradient(to bottom, ${finalAlphas
+        .map(function (alpha, i) {
+          const a = 1 - mix * (1 - alpha);
+          return `rgba(0, 0, 0, ${a.toFixed(3)}) ${((i / samples) * 100).toFixed(2)}%`;
+        })
+        .join(", ")})`;
+      element.style.webkitMaskImage = gradient;
+      element.style.maskImage = gradient;
+    };
+  }
+
   // [data-loader] is styled in the page <head> so it covers the first paint,
   // with a CSS failsafe that hides it if this script never arrives. Here it
   // locks scrolling and plays the logo once, then fades out when the hero is
@@ -548,6 +647,7 @@ function initNumenosMedia() {
     let heroDone = false;
     let waitOver = false;
     let animation = null;
+    let logoDoneAt = 0;
     let resolveExit = null;
     const exited = new Promise(function (resolve) {
       resolveExit = resolve;
@@ -557,15 +657,29 @@ function initNumenosMedia() {
       maybeExit();
     }, remainingAtStart);
 
-    function exit() {
-      if (!open) return;
-      open = false;
-      clearTimeout(capId);
+    function releaseScroll() {
       window.removeEventListener("wheel", blockScroll, blockOptions);
       window.removeEventListener("touchmove", blockScroll, blockOptions);
       window.removeEventListener("keydown", blockScrollKeys, true);
       html.style.overflow = "";
       html.style.scrollbarGutter = "";
+    }
+
+    function exit() {
+      if (!open) return;
+      open = false;
+      clearTimeout(capId);
+      const holdMs = Math.max(
+        0,
+        CONFIG.loaderLogoHold * 1000 - (performance.now() - logoDoneAt),
+      );
+      setTimeout(function () {
+        if (!flyLogoHome()) fadeOut();
+      }, holdMs);
+    }
+
+    function fadeOut() {
+      releaseScroll();
       loader.style.pointerEvents = "none";
       resolveExit();
       gsap.to(loader, {
@@ -579,12 +693,185 @@ function initNumenosMedia() {
       });
     }
 
+    // The finished logo flies into the nav and stays there as the nav logo
+    // (the nav's own image is hidden), so there is no swap to give it away.
+    // Its icon lands exactly on the nav logo's icon; on the way the nav's
+    // fade-out mask is blended in, so docking inside the nav changes nothing.
+    // Returns false when it can't run, and the loader just fades instead.
+    function flyLogoHome() {
+      const svg = logo && logo.querySelector("svg");
+      const nav = document.querySelector(".c-nav");
+      const link = nav && nav.querySelector(".nav_logo-link");
+      const navLogo = link && link.querySelector(".nav_logo");
+      if (
+        !animation ||
+        reducedMotion.matches ||
+        !svg ||
+        !navLogo ||
+        nav.classList.contains("is-hidden")
+      )
+        return false;
+      const from = svg.getBoundingClientRect();
+      const art = getArtworkRect(svg);
+      const target = navLogo.getBoundingClientRect();
+      if (!art || !from.width || !target.height || target.bottom <= 0)
+        return false;
+
+      // Fitted to the nav logo's width and centred on its height: the two
+      // files' proportions differ by a hair, so this keeps the footprint.
+      const scale = (target.width * CONFIG.navLogoInkWidth) / art.width;
+      const to = {
+        left: target.left - (art.left - from.left) * scale,
+        top:
+          target.top +
+          (target.height - art.height * scale) / 2 -
+          (art.top - from.top) * scale,
+        width: from.width * scale,
+        height: from.height * scale,
+      };
+      const flight = responsiveValue(
+        CONFIG.loaderFlightDuration,
+        CONFIG.mobile.loaderFlightDuration,
+      );
+      const reveal = responsiveValue(
+        CONFIG.loaderRevealDuration,
+        CONFIG.mobile.loaderRevealDuration,
+      );
+      const navMask = createNavMaskBlend(nav, logo, to);
+      const heroSection = getSectionByRole("hero");
+      const heroCopy = heroSection && heroSection.querySelector(".hero_wrap");
+      const navExtras = nav.querySelector(".nav_right-wrap");
+
+      svg.style.display = "block";
+      document.body.appendChild(logo);
+      gsap.set(logo, {
+        position: "fixed",
+        left: from.left,
+        top: from.top,
+        width: from.width,
+        height: from.height,
+        margin: 0,
+        zIndex: 10001,
+        pointerEvents: "none",
+        transformOrigin: "0 0",
+        willChange: "transform",
+      });
+      gsap.set(navLogo, { opacity: 0 });
+      if (navExtras) gsap.set(navExtras, { autoAlpha: 0 });
+      if (heroCopy)
+        gsap.set(heroCopy, { autoAlpha: 0, y: 16, filter: "blur(8px)" });
+
+      // The same soft-edged wipe the sections use, lifting the cream upwards.
+      const wipe =
+        "linear-gradient(to top, transparent calc(var(--loader-reveal) - 14%), #000 calc(var(--loader-reveal) + 14%))";
+      loader.style.setProperty("--loader-reveal", "-14%");
+      loader.style.webkitMaskImage = wipe;
+      loader.style.maskImage = wipe;
+
+      const blendIn = gsap.parseEase("power1.inOut");
+      const timeline = gsap.timeline();
+      timeline.to(
+        logo,
+        {
+          x: to.left - from.left,
+          y: to.top - from.top,
+          scale: scale,
+          duration: flight,
+          ease: "power3.inOut",
+          onUpdate: function () {
+            navMask(blendIn(gsap.utils.clamp(0, 1, this.progress() * 2 - 1)));
+          },
+        },
+        0,
+      );
+      timeline.call(
+        function () {
+          loader.style.pointerEvents = "none";
+          resolveExit();
+        },
+        null,
+        CONFIG.loaderRevealDelay,
+      );
+      timeline.to(
+        loader,
+        { "--loader-reveal": "114%", duration: reveal, ease: "power2.inOut" },
+        CONFIG.loaderRevealDelay,
+      );
+      if (heroCopy) {
+        timeline.to(
+          heroCopy,
+          {
+            autoAlpha: 1,
+            y: 0,
+            filter: "blur(0px)",
+            duration: CONFIG.loaderCopyDuration,
+            ease: "power2.out",
+            clearProps: "opacity,visibility,transform,filter",
+          },
+          CONFIG.loaderRevealDelay + CONFIG.loaderCopyDelay,
+        );
+      }
+      timeline.call(
+        function () {
+          dockLogo(link, navLogo, to);
+        },
+        null,
+        flight,
+      );
+      if (navExtras) {
+        timeline.to(
+          navExtras,
+          {
+            autoAlpha: 1,
+            duration: CONFIG.loaderNavFadeDuration,
+            ease: "power1.out",
+            clearProps: "opacity,visibility",
+          },
+          flight - 0.15,
+        );
+      }
+      timeline.call(
+        function () {
+          releaseScroll();
+          loader.remove();
+        },
+        null,
+        CONFIG.loaderRevealDelay + reveal,
+      );
+      return true;
+    }
+
+    // Moves the landed logo inside the nav link, sized in percentages of the
+    // link so it keeps matching the nav logo's box across breakpoints.
+    function dockLogo(link, navLogo, rect) {
+      const box = link.getBoundingClientRect();
+      function percent(value, total) {
+        return `${(value / total) * 100}%`;
+      }
+      if (getComputedStyle(link).position === "static")
+        link.style.position = "relative";
+      gsap.set(logo, { clearProps: "all" });
+      link.appendChild(logo);
+      logo.setAttribute("aria-hidden", "true");
+      Object.assign(logo.style, {
+        position: "absolute",
+        left: percent(rect.left - box.left, box.width),
+        top: percent(rect.top - box.top, box.height),
+        width: percent(rect.width, box.width),
+        height: percent(rect.height, box.height),
+        margin: "0",
+        pointerEvents: "none",
+      });
+      navLogo.style.opacity = "0";
+    }
+
     function maybeExit() {
       if (logoDone && (heroDone || waitOver)) exit();
     }
 
     function finishLogo() {
       logoDone = true;
+      logoDoneAt = performance.now();
       maybeExit();
     }
 
@@ -598,7 +885,12 @@ function initNumenosMedia() {
           finishLogo();
           return;
         }
+        // Webflow's own Lottie (the nav burger) numbers its clip paths the
+        // same way, and a clash clips this logo away once it moves next to
+        // the burger, so its ids get their own prefix.
+        const canPrefix = typeof lottie.setIDPrefix === "function";
         try {
+          if (canPrefix) lottie.setIDPrefix("numenos-loader-");
           animation = lottie.loadAnimation({
             container: logo,
             renderer: "svg",
@@ -610,6 +902,8 @@ function initNumenosMedia() {
         } catch (error) {
           finishLogo();
           return;
+        } finally {
+          if (canPrefix) lottie.setIDPrefix("");
         }
         function start() {
           if (reducedMotion.matches) {
@@ -618,6 +912,7 @@ function initNumenosMedia() {
             return;
           }
           animation.addEventListener("complete", finishLogo);
+          animation.setSpeed(CONFIG.loaderLogoSpeed);
           animation.play();
         }
         if (animation.isLoaded) start();
