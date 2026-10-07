@@ -1,0 +1,128 @@
+@property --border-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 135deg;
+}
+
+:root {
+  --border-bright: #15b6de;
+  --border-dim: rgba(21, 182, 222, 0.25);
+  --border-ease: 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-cta-border-gradient],
+[data-team-border-gradient],
+.footer_form-input {
+  --border-sweep: conic-gradient(
+    from var(--border-angle),
+    var(--border-bright),
+    var(--border-dim) 25%,
+    var(--border-bright) 50%,
+    var(--border-dim) 75%,
+    var(--border-bright)
+  );
+}
+
+/* Gradient CTA Border */
+[data-cta-border="rotate"] {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+
+[data-cta-border-gradient] {
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  pointer-events: none;
+  background: var(--border-sweep);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: --border-angle var(--border-ease);
+}
+
+[data-cta-border="rotate"]:has(:focus-visible) [data-cta-border-gradient],
+[data-cta-border="rotate"]:focus-visible [data-cta-border-gradient] {
+  --border-angle: 225deg;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-cta-border="rotate"]:hover [data-cta-border-gradient] {
+    --border-angle: 225deg;
+  }
+}
+
+/* --- TEAM SECTION --- */
+.team_name-position-wrap {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-team-border-gradient] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--border-sweep);
+  -webkit-mask:
+    linear-gradient(#000 0 0) left / 2px 100% no-repeat,
+    linear-gradient(#000 0 0) right / 2px 100% no-repeat,
+    linear-gradient(#000 0 0) bottom / 100% 2px no-repeat;
+  mask:
+    linear-gradient(#000 0 0) left / 2px 100% no-repeat,
+    linear-gradient(#000 0 0) right / 2px 100% no-repeat,
+    linear-gradient(#000 0 0) bottom / 100% 2px no-repeat;
+  transition: --border-angle var(--border-ease);
+}
+
+/* --- TECHNOLOGY SECTION --- */
+.tech_rotating-text-wrap {
+  border-left: 2px solid transparent;
+  border-image: linear-gradient(
+      var(--border-bright),
+      var(--border-dim) 50%,
+      var(--border-bright)
+    )
+    1;
+}
+
+/* --- FOOTER --- */
+.footer_form-input {
+  border: 2px solid transparent;
+  border-image: var(--border-sweep) 1;
+  transition:
+    --border-angle var(--border-ease),
+    border-color 200ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .footer_form-input:hover {
+    --border-angle: 225deg;
+  }
+}
+
+.footer_form-input:focus {
+  border-image: none;
+  border-color: var(--border-bright);
+  outline: 2px solid #fff;
+  outline-offset: -6px;
+}
+
+@media screen and (max-width: 767px) {
+  [data-sphere="footer"] {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-cta-border-gradient],
+  [data-team-border-gradient],
+  .footer_form-input {
+    transition: none;
+  }
+}

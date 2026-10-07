@@ -81,8 +81,8 @@ html.is-team-modal-open {
     transform: scale(1.05);
   }
 
-  [data-team="card"]:has([data-team="open"]:focus-visible) [data-team-border-gradient]::before {
-    transform: rotate(45deg);
+  [data-team="card"]:has([data-team="open"]:focus-visible) [data-team-border-gradient] {
+    --border-angle: 225deg;
   }
 
   [data-team="panel"] {
@@ -112,8 +112,8 @@ html.is-team-modal-open {
     transform: scale(1.05);
   }
 
-  [data-team="card"]:hover [data-team-border-gradient]::before {
-    transform: rotate(45deg);
+  [data-team="card"]:hover [data-team-border-gradient] {
+    --border-angle: 225deg;
   }
 }
 

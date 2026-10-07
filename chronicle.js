@@ -1,3 +1,30 @@
+const SPHERE_DEFAULTS = {
+  threeUrl: "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
+  sceneFollow: 4,
+  sphereScale: 1.15,
+  narrowFit: 1.05,
+  dragBlock:
+    "a, button, input, textarea, select, label, img, svg, video, [data-sphere-nodrag]",
+  // Only the rendered lines of these block a drag, not their whole box.
+  dragText: "h1, h2, h3, h4, h5, h6, p, li, blockquote, span, strong, em",
+};
+
+function injectSphereStyles() {
+  if (document.querySelector("style[data-sphere-styles]")) return;
+  const style = document.createElement("style");
+  style.setAttribute("data-sphere-styles", "");
+  style.textContent = `
+    [data-sphere="wrap"] { position: relative; isolation: isolate; }
+    [data-sphere-layer] { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+    [data-sphere-layer] canvas { position: sticky; top: 0; display: block; width: 100%; height: 100vh; height: 100lvh; }
+    [data-sphere-canvas] { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
+    .is-sphere-grab { cursor: grab; }
+    .is-sphere-dragging,
+    .is-sphere-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+  `;
+  document.head.appendChild(style);
+}
+
 function initChronicleSphere() {
   const wrap = document.querySelector('[data-sphere="wrap"]');
   if (!wrap) return;
@@ -14,11 +41,9 @@ function initChronicleSphere() {
       : null;
 
   const CONFIG = {
-    threeUrl:
-      "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
+    ...SPHERE_DEFAULTS,
     // Per step, in DOM order: 0 = sphere, 1 = scattered.
     stages: [0, 1, 0],
-    sceneFollow: 4,
     snapDuration: reducedMotion ? 0.45 : 1.1,
     // Wheel events closer together than this belong to one gesture, so trackpad momentum can't skip a step.
     wheelGestureGapMs: 200,
@@ -28,12 +53,6 @@ function initChronicleSphere() {
     swipeThreshold: 0.12,
     swipeTriggerPx: 24,
     dragMaxScatter: 0.5,
-    sphereScale: 1.4,
-    narrowFit: 1.05,
-    dragBlock:
-      "a, button, input, textarea, select, label, img, svg, video, [data-sphere-nodrag]",
-    // Only the rendered lines of these block a drag, not their whole box.
-    dragText: "h1, h2, h3, h4, h5, h6, p, li, blockquote, span, strong, em",
   };
 
   const easeInOutCubic = (t) =>
@@ -43,16 +62,7 @@ function initChronicleSphere() {
     return t * t * (3 - 2 * t);
   };
 
-  const style = document.createElement("style");
-  style.textContent = `
-    [data-sphere="wrap"] { position: relative; isolation: isolate; }
-    [data-sphere-layer] { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-    [data-sphere-layer] canvas { position: sticky; top: 0; display: block; width: 100%; height: 100vh; height: 100lvh; }
-    [data-sphere="wrap"].is-sphere-grab { cursor: grab; }
-    [data-sphere="wrap"].is-sphere-dragging,
-    [data-sphere="wrap"].is-sphere-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
-  `;
-  document.head.appendChild(style);
+  injectSphereStyles();
 
   const layer = document.createElement("div");
   layer.setAttribute("data-sphere-layer", "");
@@ -347,15 +357,34 @@ function initChronicleSphere() {
   window.addEventListener("touchend", touchEnd, { passive: true });
   window.addEventListener("touchcancel", touchEnd, { passive: true });
 
+  const sphereShown = () => stageAt(window.scrollY) < CONFIG.dragMaxScatter;
+  const drag = attachSphereDrag(wrap, CONFIG, sphereShown);
+  const releaseGrab = () => {
+    if (!sphereShown()) drag.release();
+  };
+  if (lenis) lenis.on("scroll", releaseGrab);
+  else window.addEventListener("scroll", releaseGrab, { passive: true });
+
+  createSphereScene({
+    canvas,
+    observeTarget: wrap,
+    getScatter: () => stageAt(window.scrollY),
+    drag,
+    config: CONFIG,
+    reducedMotion,
+  });
+}
+
+function attachSphereDrag(container, config, isEnabled = () => true) {
   const drag = { active: false, x: 0, y: 0, rotX: 0, rotY: 0, velX: 0 };
   const textRange = document.createRange();
 
   function isOverContent(event) {
     if (!(event.target instanceof Element)) return false;
-    const blocked = event.target.closest(CONFIG.dragBlock);
-    if (blocked && wrap.contains(blocked)) return true;
-    const text = event.target.closest(CONFIG.dragText);
-    if (!text || !wrap.contains(text)) return false;
+    const blocked = event.target.closest(config.dragBlock);
+    if (blocked && container.contains(blocked)) return true;
+    const text = event.target.closest(config.dragText);
+    if (!text || !container.contains(text)) return false;
     textRange.selectNodeContents(text);
     const pad = 4;
     for (const r of textRange.getClientRects()) {
@@ -373,16 +402,14 @@ function initChronicleSphere() {
   const endDrag = () => {
     if (!drag.active) return;
     drag.active = false;
-    wrap.classList.remove("is-sphere-dragging");
+    container.classList.remove("is-sphere-dragging");
   };
 
-  const sphereShown = () => stageAt(window.scrollY) < CONFIG.dragMaxScatter;
-
-  wrap.addEventListener("pointerdown", (event) => {
+  container.addEventListener("pointerdown", (event) => {
     if (
       event.pointerType !== "mouse" ||
       event.button !== 0 ||
-      !sphereShown() ||
+      !isEnabled() ||
       isOverContent(event)
     )
       return;
@@ -390,15 +417,15 @@ function initChronicleSphere() {
     drag.active = true;
     drag.x = event.clientX;
     drag.y = event.clientY;
-    wrap.setPointerCapture(event.pointerId);
-    wrap.classList.add("is-sphere-dragging");
+    container.setPointerCapture(event.pointerId);
+    container.classList.add("is-sphere-dragging");
   });
-  wrap.addEventListener("pointermove", (event) => {
+  container.addEventListener("pointermove", (event) => {
     if (event.pointerType !== "mouse") return;
     if (!drag.active) {
-      wrap.classList.toggle(
+      container.classList.toggle(
         "is-sphere-grab",
-        sphereShown() && !isOverContent(event),
+        isEnabled() && !isOverContent(event),
       );
       return;
     }
@@ -410,35 +437,47 @@ function initChronicleSphere() {
     drag.rotX += dy * 0.005;
     drag.velX = dy * 0.005;
   });
-  wrap.addEventListener("pointerup", endDrag);
-  wrap.addEventListener("pointercancel", endDrag);
-  wrap.addEventListener("lostpointercapture", endDrag);
-  wrap.addEventListener("pointerleave", () =>
-    wrap.classList.remove("is-sphere-grab"),
+  container.addEventListener("pointerup", endDrag);
+  container.addEventListener("pointercancel", endDrag);
+  container.addEventListener("lostpointercapture", endDrag);
+  container.addEventListener("pointerleave", () =>
+    container.classList.remove("is-sphere-grab"),
   );
-  const releaseGrab = () => {
-    if (!sphereShown()) {
-      wrap.classList.remove("is-sphere-grab");
-      endDrag();
-    }
-  };
-  if (lenis) lenis.on("scroll", releaseGrab);
-  else window.addEventListener("scroll", releaseGrab, { passive: true });
-  wrap.addEventListener(
+  container.addEventListener(
     "selectstart",
     (event) => drag.active && event.preventDefault(),
   );
-  wrap.addEventListener(
+  container.addEventListener(
     "dragstart",
     (event) => drag.active && event.preventDefault(),
   );
+
+  drag.release = () => {
+    container.classList.remove("is-sphere-grab");
+    endDrag();
+  };
+  return drag;
+}
+
+function createSphereScene({
+  canvas,
+  observeTarget,
+  getScatter,
+  drag,
+  config,
+  reducedMotion,
+}) {
+  const smooth = (a, b, x) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
 
   const loadThree = () =>
     window.THREE
       ? Promise.resolve()
       : new Promise((resolve, reject) => {
           const script = document.createElement("script");
-          script.src = CONFIG.threeUrl;
+          script.src = config.threeUrl;
           script.onload = resolve;
           script.onerror = reject;
           document.head.appendChild(script);
@@ -942,7 +981,7 @@ function initChronicleSphere() {
       camera.aspect = w / h;
       const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
       const fit =
-        camera.aspect >= 1 ? 1.28 / CONFIG.sphereScale : CONFIG.narrowFit;
+        camera.aspect >= 1 ? 1.28 / config.sphereScale : config.narrowFit;
       const dist = fit / (halfTan * Math.min(1, camera.aspect));
       camera.position.set(0, 0, dist);
       camera.lookAt(0, 0, 0);
@@ -962,7 +1001,7 @@ function initChronicleSphere() {
     buildSlices();
     buildPoints();
     resize();
-    scatter = stageAt(window.scrollY);
+    scatter = getScatter();
 
     let last = performance.now();
     let time = 0;
@@ -975,8 +1014,8 @@ function initChronicleSphere() {
       time += dt;
 
       scatter +=
-        (stageAt(window.scrollY) - scatter) *
-        (1 - Math.exp(-dt * CONFIG.sceneFollow));
+        (getScatter() - scatter) *
+        (1 - Math.exp(-dt * config.sceneFollow));
       if (Math.abs(scatter) < 1e-4) scatter = 0;
       linkMat.uniforms.uOpacity.value =
         P.linkOpacity * (1 - smooth(0, 0.2, scatter));
@@ -1007,8 +1046,34 @@ function initChronicleSphere() {
         running = false;
         cancelAnimationFrame(rafId);
       }
-    }).observe(wrap);
+    }).observe(observeTarget);
   }
+}
+
+function initChronicleFooterSphere() {
+  const holder = document.querySelector('[data-sphere="footer"]');
+  if (!holder) return;
+  injectSphereStyles();
+
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("data-sphere-canvas", "");
+  canvas.setAttribute("aria-hidden", "true");
+  holder.prepend(canvas);
+
+  const container = holder.parentElement || holder;
+  const drag = attachSphereDrag(container, SPHERE_DEFAULTS);
+
+  createSphereScene({
+    canvas,
+    observeTarget: holder,
+    getScatter: () => 0,
+    drag,
+    config: SPHERE_DEFAULTS,
+    reducedMotion,
+  });
 }
 
 function initChronicleTeam() {
@@ -1423,6 +1488,7 @@ function initChronicleTech() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initChronicleSphere();
+  initChronicleFooterSphere();
   initChronicleTeam();
   initChronicleTech();
 });
