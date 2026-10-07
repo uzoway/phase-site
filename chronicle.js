@@ -96,7 +96,8 @@ function initChronicleSphere() {
     let i = 0;
     while (i < last - 1 && y >= stagePoints[i + 1]) i++;
     return (
-      i + (y - stagePoints[i]) / Math.max(1, stagePoints[i + 1] - stagePoints[i])
+      i +
+      (y - stagePoints[i]) / Math.max(1, stagePoints[i + 1] - stagePoints[i])
     );
   }
 
@@ -738,7 +739,8 @@ function createSphereScene({
       let guard = 0;
       while (pointVecs.length < n && guard++ < n * 200) {
         const v = randomOnSphere();
-        if (pointVecs.every((q) => q.dot(v) < P.pointSpacing)) pointVecs.push(v);
+        if (pointVecs.every((q) => q.dot(v) < P.pointSpacing))
+          pointVecs.push(v);
       }
       const geo = new THREE.BufferGeometry().setFromPoints(
         pointVecs.map((v) => v.clone().multiplyScalar(R)),
@@ -1014,8 +1016,7 @@ function createSphereScene({
       time += dt;
 
       scatter +=
-        (getScatter() - scatter) *
-        (1 - Math.exp(-dt * config.sceneFollow));
+        (getScatter() - scatter) * (1 - Math.exp(-dt * config.sceneFollow));
       if (Math.abs(scatter) < 1e-4) scatter = 0;
       linkMat.uniforms.uOpacity.value =
         P.linkOpacity * (1 - smooth(0, 0.2, scatter));
@@ -1486,9 +1487,20 @@ function initChronicleTech() {
   render();
 }
 
+// Update footer year to current year
+function initCurrentYear() {
+  const yearElements = document.querySelectorAll(".update-year");
+  const currentYear = new Date().getFullYear();
+
+  yearElements.forEach((el) => {
+    el.textContent = currentYear;
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initChronicleSphere();
   initChronicleFooterSphere();
   initChronicleTeam();
   initChronicleTech();
+  initCurrentYear();
 });
