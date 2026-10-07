@@ -22,9 +22,14 @@ function initChronicleSphere() {
     snapDuration: reducedMotion ? 0.45 : 1.1,
     // Wheel events closer together than this belong to one gesture, so trackpad momentum can't skip a step.
     wheelGestureGapMs: 200,
+    surgeRatio: 1.5,
+    surgeMin: 8,
     settleDelayMs: 140,
     swipeThreshold: 0.12,
     swipeTriggerPx: 24,
+    dragMaxScatter: 0.5,
+    sphereScale: 1.4,
+    narrowFit: 1.05,
     dragBlock:
       "a, button, input, textarea, select, label, img, svg, video, [data-sphere-nodrag]",
     // Only the rendered lines of these block a drag, not their whole box.
@@ -56,13 +61,17 @@ function initChronicleSphere() {
   layer.appendChild(canvas);
   wrap.prepend(layer);
 
+  const extraStops = Array.from(
+    document.querySelectorAll('[data-sphere="snap"]'),
+  );
   const EPS = 2;
+  let stagePoints = [];
   let points = [];
   const measure = () => {
     const y = window.scrollY;
-    points = steps.map((step) =>
-      Math.round(step.getBoundingClientRect().top + y),
-    );
+    const top = (el) => Math.round(el.getBoundingClientRect().top + y);
+    stagePoints = steps.map(top);
+    points = [...stagePoints, ...extraStops.map(top)].sort((a, b) => a - b);
   };
   const currentY = () => (lenis ? lenis.animatedScroll : window.scrollY);
   measure();
@@ -71,25 +80,30 @@ function initChronicleSphere() {
   window.addEventListener("load", measure);
 
   function stepProgress(y) {
-    const last = points.length - 1;
-    if (y <= points[0]) return 0;
-    if (y >= points[last]) return last;
+    const last = stagePoints.length - 1;
+    if (y <= stagePoints[0]) return 0;
+    if (y >= stagePoints[last]) return last;
     let i = 0;
-    while (i < last - 1 && y >= points[i + 1]) i++;
-    return i + (y - points[i]) / Math.max(1, points[i + 1] - points[i]);
+    while (i < last - 1 && y >= stagePoints[i + 1]) i++;
+    return (
+      i + (y - stagePoints[i]) / Math.max(1, stagePoints[i + 1] - stagePoints[i])
+    );
   }
 
   function stageAt(y) {
     const st = stepProgress(y);
-    const i = Math.min(Math.floor(st), points.length - 2);
+    const i = Math.min(Math.floor(st), stagePoints.length - 2);
     const a = CONFIG.stages[i] ?? i % 2;
     const b = CONFIG.stages[i + 1] ?? (i + 1) % 2;
     return a + (b - a) * smooth(0, 1, st - i);
   }
 
   let snapping = false;
+  let snapGoal = null;
   let swallowGesture = false;
   let lastWheel = 0;
+  let lastDirection = 0;
+  let lastMagnitude = 0;
   let snapSafety = 0;
   let settleTimer = 0;
   let touching = false;
@@ -97,11 +111,13 @@ function initChronicleSphere() {
 
   function snapTo(y) {
     snapping = true;
+    snapGoal = y;
     swallowGesture = true;
     clearTimeout(settleTimer);
     clearTimeout(snapSafety);
     const done = () => {
       snapping = false;
+      snapGoal = null;
       clearTimeout(snapSafety);
     };
     snapSafety = setTimeout(done, CONFIG.snapDuration * 1000 + 400);
@@ -110,6 +126,7 @@ function initChronicleSphere() {
         duration: CONFIG.snapDuration,
         easing: easeInOutCubic,
         lock: true,
+        force: true,
         onComplete: done,
       });
     } else {
@@ -119,6 +136,13 @@ function initChronicleSphere() {
 
   function stepTarget(direction, goal) {
     measure();
+    if (snapping && snapGoal !== null) {
+      const next =
+        direction > 0
+          ? points.find((p) => p > snapGoal + EPS)
+          : [...points].reverse().find((p) => p < snapGoal - EPS);
+      return next ?? null;
+    }
     const y = currentY();
     const first = points[0];
     const last = points[points.length - 1];
@@ -136,15 +160,22 @@ function initChronicleSphere() {
     return target ?? null;
   }
 
-  function handleStepIntent(direction, goal) {
+  function handleStepIntent(direction, goal, magnitude = Infinity) {
     const now = performance.now();
-    const newGesture = now - lastWheel > CONFIG.wheelGestureGapMs;
+    // Momentum only ever slows down in one direction, so a reversal or a sudden surge is a fresh swipe.
+    const newGesture =
+      now - lastWheel > CONFIG.wheelGestureGapMs ||
+      direction !== lastDirection ||
+      (magnitude > lastMagnitude * CONFIG.surgeRatio &&
+        magnitude - lastMagnitude > CONFIG.surgeMin);
     lastWheel = now;
-    if (snapping || (swallowGesture && !newGesture)) return true;
+    lastDirection = direction;
+    lastMagnitude = magnitude;
+    if (!newGesture && (snapping || swallowGesture)) return true;
     swallowGesture = false;
 
     const target = stepTarget(direction, goal);
-    if (target === null) return false;
+    if (target === null) return snapping;
     snapTo(target);
     return true;
   }
@@ -166,6 +197,7 @@ function initChronicleSphere() {
         handleStepIntent(
           Math.sign(data.deltaY),
           lenis.targetScroll + data.deltaY,
+          Math.abs(data.deltaY),
         )
       ) {
         if (event.cancelable) event.preventDefault();
@@ -182,6 +214,7 @@ function initChronicleSphere() {
           handleStepIntent(
             Math.sign(event.deltaY),
             window.scrollY + event.deltaY,
+            Math.abs(event.deltaY),
           )
         )
           event.preventDefault();
@@ -286,16 +319,21 @@ function initChronicleSphere() {
       const dy = swipe.y - touch.clientY;
       if (swipe.target === undefined) {
         if (!dx && !dy) return;
-        swipe.target =
-          Math.abs(dx) > Math.abs(dy)
-            ? null
-            : snapping
-              ? currentY()
-              : stepTarget(Math.sign(dy), currentY() + Math.sign(dy));
+        if (Math.abs(dx) > Math.abs(dy)) swipe.target = null;
+        else {
+          const direction = Math.sign(dy);
+          const target = stepTarget(direction, currentY() + direction);
+          swipe.target = target ?? (snapping ? false : null);
+        }
       }
       if (swipe.target === null) return;
       if (event.cancelable) event.preventDefault();
-      if (!snapping && Math.abs(dy) >= CONFIG.swipeTriggerPx) {
+      if (
+        swipe.target !== false &&
+        !swipe.fired &&
+        Math.abs(dy) >= CONFIG.swipeTriggerPx
+      ) {
+        swipe.fired = true;
         touchStartY = null;
         snapTo(swipe.target);
       }
@@ -338,10 +376,13 @@ function initChronicleSphere() {
     wrap.classList.remove("is-sphere-dragging");
   };
 
+  const sphereShown = () => stageAt(window.scrollY) < CONFIG.dragMaxScatter;
+
   wrap.addEventListener("pointerdown", (event) => {
     if (
       event.pointerType !== "mouse" ||
       event.button !== 0 ||
+      !sphereShown() ||
       isOverContent(event)
     )
       return;
@@ -355,7 +396,10 @@ function initChronicleSphere() {
   wrap.addEventListener("pointermove", (event) => {
     if (event.pointerType !== "mouse") return;
     if (!drag.active) {
-      wrap.classList.toggle("is-sphere-grab", !isOverContent(event));
+      wrap.classList.toggle(
+        "is-sphere-grab",
+        sphereShown() && !isOverContent(event),
+      );
       return;
     }
     const dx = event.clientX - drag.x;
@@ -372,6 +416,14 @@ function initChronicleSphere() {
   wrap.addEventListener("pointerleave", () =>
     wrap.classList.remove("is-sphere-grab"),
   );
+  const releaseGrab = () => {
+    if (!sphereShown()) {
+      wrap.classList.remove("is-sphere-grab");
+      endDrag();
+    }
+  };
+  if (lenis) lenis.on("scroll", releaseGrab);
+  else window.addEventListener("scroll", releaseGrab, { passive: true });
   wrap.addEventListener(
     "selectstart",
     (event) => drag.active && event.preventDefault(),
@@ -404,7 +456,9 @@ function initChronicleSphere() {
       sliceColor: "#22b8e6",
       rimOpacity: 0.73,
       rimColor: "#145476",
-      points: 90,
+      points: 60,
+      pointSpacing: 0.97,
+      pointOpacity: 0.7,
       pointSizePx: 6,
       pointColor: "#003052",
       pointBorder: "#003052",
@@ -595,6 +649,7 @@ function initChronicleSphere() {
         uHalf: { value: new THREE.Vector2(1.5, 1.5) },
         uTime: { value: 0 },
         uDrop: { value: P.dropPoints },
+        uOpacity: { value: P.pointOpacity },
       },
       vertexShader: `
         uniform float uSize; uniform float uPR; uniform float uDrop;
@@ -619,7 +674,7 @@ function initChronicleSphere() {
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
-        uniform vec3 uColor; uniform vec3 uBorder; uniform float uSize;
+        uniform vec3 uColor; uniform vec3 uBorder; uniform float uSize; uniform float uOpacity;
         varying float vFace; varying float vAlpha;
         void main() {
           vec2 p = gl_PointCoord;
@@ -627,7 +682,7 @@ function initChronicleSphere() {
           vec3 col = e < (1.0 / uSize) ? uBorder : uColor;
           float a = mix(0.35, 1.0, smoothstep(-0.35, 0.35, vFace));
           if (vAlpha < 0.01) discard;
-          gl_FragColor = vec4(col, a * vAlpha);
+          gl_FragColor = vec4(col, a * vAlpha * uOpacity);
         }`,
     });
 
@@ -644,7 +699,7 @@ function initChronicleSphere() {
       let guard = 0;
       while (pointVecs.length < n && guard++ < n * 200) {
         const v = randomOnSphere();
-        if (pointVecs.every((q) => q.dot(v) < 0.985)) pointVecs.push(v);
+        if (pointVecs.every((q) => q.dot(v) < P.pointSpacing)) pointVecs.push(v);
       }
       const geo = new THREE.BufferGeometry().setFromPoints(
         pointVecs.map((v) => v.clone().multiplyScalar(R)),
@@ -886,7 +941,9 @@ function initChronicleSphere() {
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-      const dist = 1.28 / (halfTan * Math.min(1, camera.aspect));
+      const fit =
+        camera.aspect >= 1 ? 1.28 / CONFIG.sphereScale : CONFIG.narrowFit;
+      const dist = fit / (halfTan * Math.min(1, camera.aspect));
       camera.position.set(0, 0, dist);
       camera.lookAt(0, 0, 0);
       camera.updateProjectionMatrix();
@@ -1067,6 +1124,7 @@ function initChronicleTech() {
   const steps = Array.from(root.querySelectorAll('[data-tech="step"]'));
   const ring = root.querySelector('[data-tech="ring"]');
   const canvas = root.querySelector('[data-tech="canvas"]');
+  const gaps = root.querySelector('[data-tech="ring-gaps"]');
   const text = document.querySelector('[data-tech="text"]');
   const titles = Array.from(
     document.querySelector('[data-tech="titles"]')?.children || [],
@@ -1094,6 +1152,7 @@ function initChronicleTech() {
     ringDraw: 1.2,
     ringErase: 0.7,
     textLeaveMs: 360,
+    gapMargin: 12,
   };
 
   const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -1111,13 +1170,23 @@ function initChronicleTech() {
     return 3;
   }
 
+  let ringClosed = false;
+
   function ringAt(t) {
     const [read, resolve, ret, generate] = CONFIG.bounds;
-    if (t >= generate) return [4 * ease((t - generate) / CONFIG.ringErase), 4];
-    if (t < read) return [0, 0];
-    if (t < resolve) return [0, ease((t - read) / CONFIG.ringDraw)];
-    if (t < ret) return [0, 1 + ease((t - resolve) / CONFIG.ringDraw)];
-    return [0, 2 + 2 * ease((t - ret) / (CONFIG.ringDraw * 2))];
+    if (t >= read && t < resolve) {
+      const u = t - read;
+      if (ringClosed && u < CONFIG.ringErase)
+        return [4 * ease(u / CONFIG.ringErase), 4];
+      const start = ringClosed ? CONFIG.ringErase : 0;
+      return [0, ease((u - start) / CONFIG.ringDraw)];
+    }
+    if (t >= resolve && t < ret)
+      return [0, 1 + ease((t - resolve) / CONFIG.ringDraw)];
+    if (t >= ret && t < generate)
+      return [0, 2 + ease((t - ret) / CONFIG.ringDraw)];
+    if (!ringClosed) return [0, 0];
+    return [0, 3 + ease(wrap(t - generate) / CONFIG.ringDraw)];
   }
 
   if (text) {
@@ -1169,6 +1238,29 @@ function initChronicleTech() {
 
   [...titles, ...descriptions].forEach(splitWords);
 
+  function layoutGaps() {
+    if (!gaps) return;
+    const box = root.getBoundingClientRect();
+    if (!box.width) return;
+    const scale = 100 / box.width;
+    const m = CONFIG.gapMargin;
+    gaps.innerHTML = Array.from(
+      root.querySelectorAll('[data-tech="square"], [data-tech="label"]'),
+    )
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        const x = (r.left - box.left - m) * scale;
+        const y = (r.top - box.top - m) * scale;
+        const w = (r.width + m * 2) * scale;
+        const h = (r.height + m * 2) * scale;
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}"></rect>`;
+      })
+      .join("");
+  }
+
+  new ResizeObserver(layoutGaps).observe(root);
+  if (document.fonts) document.fonts.ready.then(layoutGaps);
+
   const leaveTimers = new Map();
 
   function setActive(index) {
@@ -1197,6 +1289,7 @@ function initChronicleTech() {
   }
 
   function render() {
+    if (stepAt(t) === 3) ringClosed = true;
     const [a, b] = ringAt(t);
     if (ring) {
       ring.style.strokeDasharray = `${Math.max(0, b - a)} 4`;

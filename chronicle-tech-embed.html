@@ -141,7 +141,15 @@
 <div data-tech="visual" data-tech-src="PASTE_RIV_URL_HERE">
   <div data-tech="stage" aria-hidden="true">
     <svg data-tech="ring-svg" viewBox="0 0 100 100" focusable="false">
-      <circle data-tech="ring" cx="50" cy="50" r="42" pathLength="4" transform="rotate(-90 50 50)"></circle>
+      <defs>
+        <mask id="tech-ring-gaps" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120">
+          <rect x="-10" y="-10" width="120" height="120" fill="#fff"></rect>
+          <g data-tech="ring-gaps" fill="#000"></g>
+        </mask>
+      </defs>
+      <g mask="url(#tech-ring-gaps)">
+        <circle data-tech="ring" cx="50" cy="50" r="42" pathLength="4" transform="rotate(-90 50 50)"></circle>
+      </g>
     </svg>
     <div data-tech="clip">
       <canvas data-tech="canvas"></canvas>
@@ -149,16 +157,16 @@
   </div>
   <ol data-tech="steps" aria-label="Technology loop">
     <li data-tech-step="generate">
-      <button type="button" data-tech="step"><span data-tech="square"></span><span>Generate</span></button>
+      <button type="button" data-tech="step"><span data-tech="square"></span><span data-tech="label">Generate</span></button>
     </li>
     <li data-tech-step="read">
-      <button type="button" data-tech="step"><span data-tech="square"></span><span>Read</span></button>
+      <button type="button" data-tech="step"><span data-tech="square"></span><span data-tech="label">Read</span></button>
     </li>
     <li data-tech-step="resolve">
-      <button type="button" data-tech="step"><span data-tech="square"></span><span>Resolve</span></button>
+      <button type="button" data-tech="step"><span data-tech="square"></span><span data-tech="label">Resolve</span></button>
     </li>
     <li data-tech-step="return">
-      <button type="button" data-tech="step"><span data-tech="square"></span><span>Return</span></button>
+      <button type="button" data-tech="step"><span data-tech="square"></span><span data-tech="label">Return</span></button>
     </li>
   </ol>
 </div>
