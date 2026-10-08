@@ -49,6 +49,8 @@ function initChronicleSphere() {
     wheelGestureGapMs: 200,
     surgeRatio: 1.5,
     surgeMin: 8,
+    surgeFade: 0.5,
+    surgeLockMs: 350,
     settleDelayMs: 140,
     swipeThreshold: 0.12,
     swipeTriggerPx: 24,
@@ -115,6 +117,8 @@ function initChronicleSphere() {
   let lastWheel = 0;
   let lastDirection = 0;
   let lastMagnitude = 0;
+  let gesturePeak = 0;
+  let snapStartedAt = 0;
   let snapSafety = 0;
   let settleTimer = 0;
   let touching = false;
@@ -123,6 +127,7 @@ function initChronicleSphere() {
   function snapTo(y) {
     snapping = true;
     snapGoal = y;
+    snapStartedAt = performance.now();
     swallowGesture = true;
     clearTimeout(settleTimer);
     clearTimeout(snapSafety);
@@ -173,12 +178,17 @@ function initChronicleSphere() {
 
   function handleStepIntent(direction, goal, magnitude = Infinity) {
     const now = performance.now();
-    // Momentum only ever slows down in one direction, so a reversal or a sudden surge is a fresh swipe.
+    // Momentum only slows down, so speed picking up again after it has faded is a fresh swipe.
+    const surged =
+      now - snapStartedAt > CONFIG.surgeLockMs &&
+      lastMagnitude < gesturePeak * CONFIG.surgeFade &&
+      magnitude > lastMagnitude * CONFIG.surgeRatio &&
+      magnitude - lastMagnitude > CONFIG.surgeMin;
     const newGesture =
       now - lastWheel > CONFIG.wheelGestureGapMs ||
       direction !== lastDirection ||
-      (magnitude > lastMagnitude * CONFIG.surgeRatio &&
-        magnitude - lastMagnitude > CONFIG.surgeMin);
+      surged;
+    gesturePeak = newGesture ? magnitude : Math.max(gesturePeak, magnitude);
     lastWheel = now;
     lastDirection = direction;
     lastMagnitude = magnitude;
