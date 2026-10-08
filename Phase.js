@@ -72,7 +72,12 @@ function initHeroSequence() {
 /* -- PROCESS VIDEO STEP ANIMATION -- */
 const SHOW_STEP_INDICATORS = true;
 const PROCESS_TRANSITION_SIDE_RATIO = 0.1;
-const PROCESS_SCRUB_FPS = 30;
+const PROCESS_VIDEO_FIT = 0.9;
+const PROCESS_VIDEO_MAX_WIDTH = 1.15;
+const PROCESS_INTRO_FADE = 0.4;
+const PROCESS_FALLBACK_FPS = 24;
+const PROCESS_PARTICLE_GRID = 320;
+const PROCESS_MOBILE_SOURCES_QUERY = "(max-width: 767px)";
 
 function initProcessAnimation() {
   const section = document.querySelector('[data-process="section"]');
@@ -111,21 +116,29 @@ function initProcessAnimation() {
 
   const total = texts.length;
 
+  // One dot at the start of every section plus one closing dot, so each
+  // section spans dot N -> dot N+1 and transitions land on dots 2..N.
   const stepNodes = SHOW_STEP_INDICATORS
-    ? buildStepNodes(progressWrap, total)
+    ? buildStepNodes(progressWrap, total + 1)
     : [];
 
-  const scenes = videoMounts.map((mount) => {
-    const rotation = parseInt(
-      mount.getAttribute("data-video-rotation") || "0",
-      10,
-    );
+  const useMobileSources = window.matchMedia(
+    PROCESS_MOBILE_SOURCES_QUERY,
+  ).matches;
 
-    return createDualScene(
-      mount,
-      mount.getAttribute("data-video-src"),
-      rotation,
-    );
+  const backgroundColor = getComputedStyle(section).backgroundColor;
+
+  const scenes = videoMounts.map((mount) => {
+    const getSource = (name) =>
+      (useMobileSources && mount.getAttribute(`${name}-mobile`)) ||
+      mount.getAttribute(name);
+
+    return createDualScene(mount, {
+      loopSrc: getSource("data-video-src"),
+      introSrc: getSource("data-video-intro-src"),
+      rotation: parseInt(mount.getAttribute("data-video-rotation") || "0", 10),
+      backgroundColor,
+    });
   });
 
   return Promise.all(scenes.map((scene) => scene.ready)).then(() => {
@@ -136,7 +149,7 @@ function initProcessAnimation() {
     if (prefersReducedMotion) {
       const isMobile = window.matchMedia("(max-width: 990px)").matches;
 
-      positionStepNodes(stepNodes, isMobile, total);
+      positionStepNodes(stepNodes, isMobile);
 
       gsap.set(texts, {
         autoAlpha: 0,
@@ -175,8 +188,7 @@ function initProcessAnimation() {
       }
 
       scenes[0].setVisualState(0, 0, 0);
-      scenes[0].seek(0);
-      scenes[0].render();
+      scenes[0].showStill();
 
       return;
     }
@@ -197,9 +209,12 @@ function initProcessAnimation() {
         const stepSlot = 1 / total;
         const transitionSide = stepSlot * PROCESS_TRANSITION_SIDE_RATIO;
 
-        const finalStageStart = (total - 1) / total;
+        let activeScenes = new Set();
+        let sectionVisible = false;
+        let scrollDirection = 1;
+        let lastProgress = 0;
 
-        positionStepNodes(stepNodes, isMobile, total);
+        positionStepNodes(stepNodes, isMobile);
 
         gsap.set(texts, {
           autoAlpha: 0,
@@ -243,9 +258,6 @@ function initProcessAnimation() {
               return {
                 from: to - 1,
                 to,
-                center,
-                start,
-                end,
                 progress: clamp((progress - start) / (end - start)),
               };
             }
@@ -258,15 +270,28 @@ function initProcessAnimation() {
           return Math.min(total - 1, Math.floor(clamp(progress) * total));
         }
 
-        function getStableVideoProgress(step, progress) {
-          const start = step === 0 ? 0 : step / total + transitionSide;
+        // Plays the scenes that are on screen and pauses the rest. Scenes
+        // entered while scrolling down replay their intro clip.
+        function setActiveScenes(indices) {
+          const next = new Set(sectionVisible ? indices : []);
 
-          const end =
-            step === total - 1 ? 1 : (step + 1) / total - transitionSide;
+          activeScenes.forEach((index) => {
+            if (!next.has(index)) scenes[index].deactivate();
+          });
 
-          if (end <= start) return 0;
+          next.forEach((index) => {
+            if (!activeScenes.has(index)) {
+              scenes[index].activate(scrollDirection);
+            }
+          });
 
-          return clamp((progress - start) / (end - start));
+          activeScenes = next;
+        }
+
+        function tickActiveScenes(time, deltaTime) {
+          const delta = Math.min(deltaTime / 1000, 0.1);
+
+          activeScenes.forEach((index) => scenes[index].tick(delta));
         }
 
         function hideTexts() {
@@ -316,17 +341,12 @@ function initProcessAnimation() {
         }
 
         function updateProgress(progress) {
-          const barProgress =
-            finalStageStart > 0 ? clamp(progress / finalStageStart) : 1;
-
           gsap.set(progressBar, {
-            [barAxis]: barProgress,
+            [barAxis]: progress,
           });
 
           stepNodes.forEach((node, index) => {
-            const nodePosition = total === 1 ? 0 : index / (total - 1);
-
-            const completed = barProgress + 0.0001 >= nodePosition;
+            const completed = progress + 0.0001 >= index / total;
 
             gsap.set(node, {
               autoAlpha: completed ? 1 : 0.25,
@@ -335,18 +355,16 @@ function initProcessAnimation() {
           });
         }
 
-        function renderStableStep(step, progress) {
-          const videoProgress = getStableVideoProgress(step, progress);
-
+        function renderStableStep(step) {
           hideVideoMounts();
 
           showVideoMount(step, 1, 2);
 
           showStableText(step);
 
-          scenes[step].setVisualState(0, 0, step * 4 + videoProgress * 2);
+          setActiveScenes([step]);
 
-          scenes[step].seek(videoProgress);
+          scenes[step].setVisualState(0, 0, step * 4);
 
           scenes[step].render();
         }
@@ -366,8 +384,7 @@ function initProcessAnimation() {
 
           showTransitionText(from, to, transitionProgress);
 
-          scenes[from].seek(1);
-          scenes[to].seek(0);
+          setActiveScenes([from, to]);
 
           scenes[from].setVisualState(eased, eased, flowTime);
 
@@ -377,49 +394,20 @@ function initProcessAnimation() {
           scenes[to].render();
         }
 
-        function renderFinalCrossfade(transition) {
-          const { from, to, progress: transitionProgress } = transition;
-
-          const eased = smoothstep(transitionProgress);
-
-          hideVideoMounts();
-
-          showVideoMount(from, 1 - eased, 2);
-
-          showVideoMount(to, eased, 1);
-
-          showTransitionText(from, to, transitionProgress);
-
-          scenes[from].seek(1);
-          scenes[to].seek(0);
-
-          scenes[from].setVisualState(0, 0, from * 4);
-
-          scenes[to].setVisualState(0, 0, to * 4);
-
-          scenes[from].render();
-          scenes[to].render();
-        }
-
         function updateProcessState(rawProgress) {
           const progress = clamp(rawProgress);
+
+          if (progress !== lastProgress) {
+            scrollDirection = progress > lastProgress ? 1 : -1;
+            lastProgress = progress;
+          }
 
           updateProgress(progress);
 
           const transition = getTransition(progress);
 
           if (!transition) {
-            const step = getStableStep(progress);
-
-            renderStableStep(step, progress);
-
-            return;
-          }
-
-          const isFinalTransition = transition.to === total - 1;
-
-          if (isFinalTransition) {
-            renderFinalCrossfade(transition);
+            renderStableStep(getStableStep(progress));
 
             return;
           }
@@ -448,14 +436,38 @@ function initProcessAnimation() {
           },
         });
 
+        // Videos only play while the section is on screen. Playback starts
+        // once the section is halfway into the viewport.
+        const visibilityTrigger = ScrollTrigger.create({
+          start: () => processTrigger.start - window.innerHeight * 0.5,
+          end: () => processTrigger.end + window.innerHeight,
+          invalidateOnRefresh: true,
+
+          onToggle: (self) => {
+            sectionVisible = self.isActive;
+            scrollDirection = self.direction;
+
+            updateProcessState(processTrigger.progress);
+          },
+        });
+
+        gsap.ticker.add(tickActiveScenes);
+
         scenes.forEach((scene) => scene.refresh());
+
+        sectionVisible = visibilityTrigger.isActive;
+        lastProgress = processTrigger.progress;
 
         updateProcessState(processTrigger.progress);
 
         return () => {
-          processTrigger.kill();
+          gsap.ticker.remove(tickActiveScenes);
 
-          scenes.forEach((scene) => scene.destroy());
+          sectionVisible = false;
+          setActiveScenes([]);
+
+          processTrigger.kill();
+          visibilityTrigger.kill();
 
           gsap.set(texts, {
             clearProps: "opacity,visibility,transform,willChange",
@@ -470,21 +482,143 @@ function initProcessAnimation() {
   });
 }
 
-function createDualScene(mount, videoSrc, rotation) {
+// Hidden <video> that feeds a WebGL texture. Autoplays muted; if the browser
+// blocks playback (e.g. iOS Low Power Mode) it falls back to stepping through
+// the video by seeking on a clock, which those browsers still allow.
+function createProcessClip(src, loop) {
   const video = document.createElement("video");
 
-  video.src = videoSrc;
+  video.src = src;
   video.crossOrigin = "anonymous";
   video.muted = true;
-  video.loop = false;
+  video.loop = loop;
   video.playsInline = true;
   video.autoplay = false;
   video.preload = "auto";
 
+  video.setAttribute("muted", "");
   video.setAttribute("playsinline", "");
 
-  video.pause();
   video.load();
+
+  const frameDuration = 1 / PROCESS_FALLBACK_FPS;
+
+  const clip = {
+    video,
+    onEnded: null,
+    play,
+    pause,
+    restart,
+    tick,
+    destroy,
+  };
+
+  let manual = false;
+  let playing = false;
+  let manualTime = 0;
+  let seekInFlight = false;
+
+  function getDuration() {
+    return Number.isFinite(video.duration) ? video.duration : 0;
+  }
+
+  function play() {
+    playing = true;
+
+    if (manual) return;
+
+    const attempt = video.play();
+
+    if (attempt && typeof attempt.catch === "function") {
+      attempt.catch((error) => {
+        if (!playing || error?.name !== "NotAllowedError") return;
+
+        manual = true;
+        manualTime = video.currentTime;
+      });
+    }
+  }
+
+  function pause() {
+    playing = false;
+    video.pause();
+  }
+
+  function restart() {
+    manualTime = 0;
+
+    if (video.currentTime !== 0 && video.readyState >= 1) {
+      video.currentTime = 0;
+    }
+  }
+
+  function tick(delta) {
+    if (!manual || !playing) return;
+
+    const duration = getDuration();
+
+    if (!duration) return;
+
+    const lastFrame = Math.max(0, duration - frameDuration);
+
+    manualTime += delta;
+
+    if (manualTime >= lastFrame) {
+      if (loop) {
+        manualTime %= lastFrame || 1;
+      } else {
+        manualTime = lastFrame;
+        playing = false;
+        clip.onEnded?.();
+      }
+    }
+
+    if (seekInFlight || video.seeking) return;
+
+    const targetTime =
+      Math.round(manualTime / frameDuration) * frameDuration;
+
+    if (Math.abs(targetTime - video.currentTime) < frameDuration * 0.5) {
+      return;
+    }
+
+    seekInFlight = true;
+
+    try {
+      video.currentTime = Math.min(targetTime, lastFrame);
+    } catch {
+      seekInFlight = false;
+    }
+  }
+
+  function handleSeeked() {
+    seekInFlight = false;
+  }
+
+  function handleEnded() {
+    if (!manual) clip.onEnded?.();
+  }
+
+  video.addEventListener("seeked", handleSeeked);
+  video.addEventListener("ended", handleEnded);
+
+  function destroy() {
+    playing = false;
+
+    video.removeEventListener("seeked", handleSeeked);
+    video.removeEventListener("ended", handleEnded);
+
+    video.pause();
+  }
+
+  return clip;
+}
+
+function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }) {
+  const loopClip = createProcessClip(loopSrc, true);
+  const introClip = introSrc ? createProcessClip(introSrc, false) : null;
+
+  const clips = introClip ? [introClip, loopClip] : [loopClip];
 
   const scene = new THREE.Scene();
 
@@ -499,27 +633,55 @@ function createDualScene(mount, videoSrc, rotation) {
 
   renderer.setClearColor(0x000000, 0);
 
+  // The canvas sits out of flow so its pixel size never feeds back into the
+  // mount's layout; the mount is sized by Webflow.
+  if (getComputedStyle(mount).position === "static") {
+    mount.style.position = "relative";
+  }
+
   mount.appendChild(renderer.domElement);
 
   Object.assign(renderer.domElement.style, {
+    position: "absolute",
+    inset: "0",
     width: "100%",
     height: "100%",
     display: "block",
   });
 
-  const texture = new THREE.VideoTexture(video);
+  function createTexture(video) {
+    const texture = new THREE.VideoTexture(video);
 
-  texture.minFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.format = THREE.RGBAFormat;
+    texture.flipY = true;
 
-  texture.magFilter = THREE.LinearFilter;
+    return texture;
+  }
 
-  texture.format = THREE.RGBAFormat;
+  const loopTexture = createTexture(loopClip.video);
+  const introTexture = introClip ? createTexture(introClip.video) : loopTexture;
 
-  texture.flipY = true;
+  const textures = introClip ? [introTexture, loopTexture] : [loopTexture];
+
+  const background = new THREE.Color(backgroundColor || "#040510");
 
   const uniforms = {
     uTexture: {
-      value: texture,
+      value: loopTexture,
+    },
+
+    uIntroTexture: {
+      value: introTexture,
+    },
+
+    uIntroMix: {
+      value: introClip ? 1 : 0,
+    },
+
+    uBackground: {
+      value: new THREE.Vector3(background.r, background.g, background.b),
     },
 
     uTransition: {
@@ -534,12 +696,12 @@ function createDualScene(mount, videoSrc, rotation) {
       value: 0,
     },
 
-    uContainerAspect: {
+    uCanvasAspect: {
       value: 1,
     },
 
-    uVideoAspect: {
-      value: 1,
+    uVideoScale: {
+      value: new THREE.Vector2(PROCESS_VIDEO_FIT, PROCESS_VIDEO_FIT),
     },
 
     uRotation: {
@@ -561,9 +723,7 @@ function createDualScene(mount, videoSrc, rotation) {
 
   scene.add(videoMesh);
 
-  const GRID_SIZE = 320;
-
-  const particleGeometry = buildParticleGeometry(GRID_SIZE);
+  const particleGeometry = buildParticleGeometry(PROCESS_PARTICLE_GRID);
 
   const particleMaterial = new THREE.ShaderMaterial({
     uniforms: {
@@ -587,172 +747,177 @@ function createDualScene(mount, videoSrc, rotation) {
     blending: THREE.NormalBlending,
   });
 
-  particleMaterial.uniforms.uTexture = uniforms.uTexture;
-
-  particleMaterial.uniforms.uTransition = uniforms.uTransition;
-
-  particleMaterial.uniforms.uScatter = uniforms.uScatter;
-
-  particleMaterial.uniforms.uTime = uniforms.uTime;
-
-  particleMaterial.uniforms.uContainerAspect = uniforms.uContainerAspect;
-
-  particleMaterial.uniforms.uVideoAspect = uniforms.uVideoAspect;
-
-  particleMaterial.uniforms.uRotation = uniforms.uRotation;
-
   const particles = new THREE.Points(particleGeometry, particleMaterial);
 
   scene.add(particles);
 
-  const frameDuration = 1 / PROCESS_SCRUB_FPS;
-
-  let desiredVideoProgress = 0;
-  let requestedTime = null;
-  let seekInFlight = false;
-  let seekRafId = null;
-  let videoFrameCallbackId = null;
   let destroyed = false;
+  let active = false;
+  let phase = introClip ? "idle" : "loop";
+  let introFade = null;
+  let needsRender = true;
+  let lastFrameTimes = clips.map(() => -1);
 
   function clamp(value, min = 0, max = 1) {
     return Math.min(Math.max(value, min), max);
   }
 
-  function getSafeEnd() {
-    if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      return 0;
-    }
+  function getVideoAspect() {
+    const { videoWidth, videoHeight } = loopClip.video;
 
-    return Math.max(0, video.duration - frameDuration);
+    if (!videoWidth || !videoHeight) return 1;
+
+    const isRotated90 = rotation === 90 || rotation === 270;
+
+    return isRotated90 ? videoHeight / videoWidth : videoWidth / videoHeight;
   }
 
-  function getDesiredTime() {
-    const safeEnd = getSafeEnd();
-
-    if (!safeEnd) return 0;
-
-    const rawTime = desiredVideoProgress * safeEnd;
-
-    const quantizedTime = Math.round(rawTime / frameDuration) * frameDuration;
-
-    return clamp(quantizedTime, 0, safeEnd);
-  }
-
-  function updateAspect() {
+  // Sizes the video to PROCESS_VIDEO_FIT of the canvas height. The clips have
+  // wide empty margins, so the video may overflow the canvas width by up to
+  // PROCESS_VIDEO_MAX_WIDTH before it starts shrinking.
+  function updateLayout() {
     const width = mount.clientWidth;
+    const height = mount.clientHeight || width;
 
-    const height = mount.clientHeight;
+    if (!width || !height) return;
 
-    if (!width || !height) {
-      return;
-    }
+    const videoAspect = getVideoAspect();
 
-    uniforms.uContainerAspect.value = width / height;
+    const videoWidth = Math.min(
+      width * PROCESS_VIDEO_MAX_WIDTH,
+      height * PROCESS_VIDEO_FIT * videoAspect,
+    );
 
-    if (video.videoWidth && video.videoHeight) {
-      const isRotated90 = rotation === 90 || rotation === 270;
+    const videoHeight = videoWidth / videoAspect;
 
-      uniforms.uVideoAspect.value = isRotated90
-        ? video.videoHeight / video.videoWidth
-        : video.videoWidth / video.videoHeight;
-    }
+    uniforms.uCanvasAspect.value = width / height;
+
+    uniforms.uVideoScale.value.set(videoWidth / width, videoHeight / height);
+
+    particleMaterial.uniforms.uSize.value = Math.max(
+      1.5,
+      (videoHeight / PROCESS_PARTICLE_GRID) * 2,
+    );
+
+    needsRender = true;
   }
 
   function render() {
     if (destroyed) return;
 
+    textures.forEach((texture) => {
+      if (texture.image.readyState >= 2) texture.needsUpdate = true;
+    });
+
+    const showParticles = uniforms.uTransition.value > 0.001;
+
+    particles.visible = showParticles;
+    videoMesh.visible = uniforms.uTransition.value < 0.999;
+
     renderer.render(scene, camera);
+
+    needsRender = false;
+    lastFrameTimes = clips.map((clip) => clip.video.currentTime);
   }
 
-  function renderDecodedFrame() {
+  function hasNewFrame() {
+    return clips.some(
+      (clip, index) => clip.video.currentTime !== lastFrameTimes[index],
+    );
+  }
+
+  function tick(delta) {
     if (destroyed) return;
 
-    if (typeof video.requestVideoFrameCallback === "function") {
-      if (
-        videoFrameCallbackId !== null &&
-        typeof video.cancelVideoFrameCallback === "function"
-      ) {
-        video.cancelVideoFrameCallback(videoFrameCallbackId);
-      }
+    clips.forEach((clip) => clip.tick(delta));
 
-      videoFrameCallbackId = video.requestVideoFrameCallback(() => {
-        videoFrameCallbackId = null;
+    if (needsRender || hasNewFrame()) render();
+  }
 
-        texture.needsUpdate = true;
+  function setIntroMix(value) {
+    uniforms.uIntroMix.value = value;
+    needsRender = true;
+  }
 
-        render();
+  function startIntro() {
+    phase = "intro";
+
+    introFade?.kill();
+    setIntroMix(1);
+
+    loopClip.pause();
+    loopClip.restart();
+
+    introClip.restart();
+    introClip.play();
+  }
+
+  function showLoop() {
+    phase = "loop";
+
+    introFade?.kill();
+    setIntroMix(0);
+
+    introClip?.pause();
+
+    loopClip.play();
+  }
+
+  if (introClip) {
+    introClip.onEnded = () => {
+      if (phase !== "intro") return;
+
+      phase = "loop";
+
+      loopClip.restart();
+
+      if (active) loopClip.play();
+
+      introFade = gsap.to(uniforms.uIntroMix, {
+        value: 0,
+        duration: PROCESS_INTRO_FADE,
+        ease: "power1.inOut",
+        onUpdate: () => {
+          needsRender = true;
+        },
       });
+    };
+  }
 
+  function activate(direction) {
+    active = true;
+
+    if (!introClip) {
+      loopClip.play();
       return;
     }
 
-    texture.needsUpdate = true;
+    if (direction < 0) {
+      showLoop();
+      return;
+    }
+
+    if (phase === "intro") {
+      introClip.play();
+      return;
+    }
+
+    startIntro();
+  }
+
+  function deactivate() {
+    active = false;
+
+    clips.forEach((clip) => clip.pause());
+  }
+
+  function showStill() {
+    if (introClip) {
+      phase = "loop";
+      setIntroMix(0);
+    }
+
     render();
-  }
-
-  function scheduleSeek() {
-    if (destroyed || seekRafId !== null) {
-      return;
-    }
-
-    seekRafId = requestAnimationFrame(flushSeek);
-  }
-
-  function flushSeek() {
-    seekRafId = null;
-
-    if (destroyed) return;
-
-    if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      return;
-    }
-
-    if (seekInFlight || video.seeking) {
-      return;
-    }
-
-    const targetTime = getDesiredTime();
-
-    const currentTime = video.currentTime;
-
-    if (Math.abs(targetTime - currentTime) < frameDuration * 0.5) {
-      render();
-      return;
-    }
-
-    seekInFlight = true;
-    requestedTime = targetTime;
-
-    try {
-      video.currentTime = targetTime;
-    } catch {
-      seekInFlight = false;
-      requestedTime = null;
-      render();
-    }
-  }
-
-  function handleSeeked() {
-    if (destroyed) return;
-
-    seekInFlight = false;
-
-    renderDecodedFrame();
-
-    const latestTarget = getDesiredTime();
-
-    if (
-      requestedTime === null ||
-      Math.abs(latestTarget - requestedTime) >= frameDuration * 0.5
-    ) {
-      scheduleSeek();
-    }
-  }
-
-  function seek(progress) {
-    desiredVideoProgress = clamp(progress);
-
-    scheduleSeek();
   }
 
   function setVisualState(transition, scatter, time) {
@@ -761,18 +926,17 @@ function createDualScene(mount, videoSrc, rotation) {
     uniforms.uScatter.value = clamp(scatter);
 
     uniforms.uTime.value = time;
+
+    needsRender = true;
   }
 
   function resize() {
     const width = mount.clientWidth;
+    const height = mount.clientHeight || width;
 
-    if (!width) return;
-
-    const height = width;
+    if (!width || !height) return;
 
     const pixelRatio = Math.min(window.devicePixelRatio, 2);
-
-    mount.style.height = `${height}px`;
 
     renderer.setPixelRatio(pixelRatio);
 
@@ -780,24 +944,20 @@ function createDualScene(mount, videoSrc, rotation) {
 
     particleMaterial.uniforms.uPixelRatio.value = pixelRatio;
 
-    updateAspect();
+    updateLayout();
     render();
   }
 
-  function handleMetadata() {
-    updateAspect();
-
-    desiredVideoProgress = 0;
-
-    scheduleSeek();
+  function handleLoadedData() {
+    updateLayout();
     render();
   }
 
-  video.addEventListener("loadedmetadata", handleMetadata);
-
-  video.addEventListener("loadeddata", handleMetadata);
-
-  video.addEventListener("seeked", handleSeeked);
+  clips.forEach((clip) => {
+    clip.video.addEventListener("loadedmetadata", handleLoadedData);
+    clip.video.addEventListener("loadeddata", handleLoadedData);
+    clip.video.addEventListener("seeked", handleLoadedData);
+  });
 
   const resizeObserver = new ResizeObserver(resize);
 
@@ -805,52 +965,41 @@ function createDualScene(mount, videoSrc, rotation) {
 
   resize();
 
+  function whenLoaded(video) {
+    return new Promise((resolve) => {
+      if (video.readyState >= 2) {
+        resolve();
+        return;
+      }
+
+      video.addEventListener("loadeddata", resolve, { once: true });
+    });
+  }
+
   const ready = new Promise((resolve) => {
     const failsafe = setTimeout(resolve, 3000);
 
-    if (video.readyState >= 2) {
+    Promise.all(clips.map((clip) => whenLoaded(clip.video))).then(() => {
       clearTimeout(failsafe);
 
       resolve();
-      return;
-    }
-
-    video.addEventListener(
-      "loadeddata",
-      () => {
-        clearTimeout(failsafe);
-
-        resolve();
-      },
-      {
-        once: true,
-      },
-    );
+    });
   });
 
   function destroy() {
     destroyed = true;
 
-    if (seekRafId !== null) {
-      cancelAnimationFrame(seekRafId);
-    }
-
-    if (
-      videoFrameCallbackId !== null &&
-      typeof video.cancelVideoFrameCallback === "function"
-    ) {
-      video.cancelVideoFrameCallback(videoFrameCallbackId);
-    }
+    introFade?.kill();
 
     resizeObserver.disconnect();
 
-    video.removeEventListener("loadedmetadata", handleMetadata);
+    clips.forEach((clip) => {
+      clip.video.removeEventListener("loadedmetadata", handleLoadedData);
+      clip.video.removeEventListener("loadeddata", handleLoadedData);
+      clip.video.removeEventListener("seeked", handleLoadedData);
 
-    video.removeEventListener("loadeddata", handleMetadata);
-
-    video.removeEventListener("seeked", handleSeeked);
-
-    video.pause();
+      clip.destroy();
+    });
 
     videoMaterial.dispose();
     particleMaterial.dispose();
@@ -858,14 +1007,17 @@ function createDualScene(mount, videoSrc, rotation) {
     videoGeometry.dispose();
     particleGeometry.dispose();
 
-    texture.dispose();
+    textures.forEach((texture) => texture.dispose());
     renderer.dispose();
   }
 
   return {
     ready,
-    seek,
     render,
+    tick,
+    activate,
+    deactivate,
+    showStill,
     refresh: resize,
     setVisualState,
     destroy,
@@ -916,11 +1068,37 @@ function buildParticleGeometry(gridSize) {
   return geometry;
 }
 
+// Shared by both fragment shaders: blends the intro clip into the loop clip
+// and fades pixels that match the section background, so the video frame has
+// no visible edge against the page.
+const PROCESS_SAMPLE_CHUNK = `
+  uniform sampler2D uTexture;
+  uniform sampler2D uIntroTexture;
+  uniform float uIntroMix;
+  uniform vec3 uBackground;
+
+  vec4 sampleProcessVideo(vec2 uv) {
+    vec3 loopColor = texture2D(uTexture, uv).rgb;
+    vec3 introColor = texture2D(uIntroTexture, uv).rgb;
+
+    vec3 color = mix(loopColor, introColor, uIntroMix);
+
+    vec3 difference = abs(color - uBackground);
+
+    float keyAlpha = smoothstep(
+      0.0,
+      0.04,
+      max(difference.r, max(difference.g, difference.b))
+    );
+
+    return vec4(color, keyAlpha);
+  }
+`;
+
 const VIDEO_VERT = `
   varying vec2 vUv;
 
-  uniform float uContainerAspect;
-  uniform float uVideoAspect;
+  uniform vec2 uVideoScale;
   uniform float uRotation;
 
   vec2 rotate2D(vec2 value, float angle) {
@@ -930,25 +1108,15 @@ const VIDEO_VERT = `
   }
 
   void main() {
-    vec2 sampleUv = uv - 0.5;
+    vUv = rotate2D(uv - 0.5, uRotation) + 0.5;
 
-    if (uContainerAspect > uVideoAspect) {
-      sampleUv.y *= uVideoAspect / uContainerAspect;
-    } else {
-      sampleUv.x *= uContainerAspect / uVideoAspect;
-    }
-
-    sampleUv = rotate2D(sampleUv, uRotation);
-    sampleUv += 0.5;
-
-    vUv = sampleUv;
-
-    gl_Position = vec4(position.xy, 0.0, 1.0);
+    gl_Position = vec4(position.xy * uVideoScale, 0.0, 1.0);
   }
 `;
 
 const VIDEO_FRAG = `
-  uniform sampler2D uTexture;
+  ${PROCESS_SAMPLE_CHUNK}
+
   uniform float uTransition;
 
   varying vec2 vUv;
@@ -963,16 +1131,13 @@ const VIDEO_FRAG = `
       discard;
     }
 
-    vec4 color = texture2D(uTexture, vUv);
-
-    float alpha =
-      color.a *
-      (1.0 - uTransition);
+    vec4 color = sampleProcessVideo(vUv);
 
     gl_FragColor =
       vec4(
         color.rgb,
-        alpha
+        color.a *
+        (1.0 - uTransition)
       );
   }
 `;
@@ -981,17 +1146,17 @@ const PARTICLE_VERT = `
   attribute vec2 aUv;
   attribute vec3 aRandom;
 
-  uniform float uTransition;
   uniform float uScatter;
   uniform float uTime;
   uniform float uPixelRatio;
   uniform float uSize;
-  uniform float uContainerAspect;
-  uniform float uVideoAspect;
+  uniform float uCanvasAspect;
+  uniform vec2 uVideoScale;
   uniform float uRotation;
 
   varying vec2 vUv;
   varying float vAlpha;
+  varying float vEdge;
 
   vec2 rotate2D(vec2 value, float angle) {
     float c = cos(angle);
@@ -1012,43 +1177,31 @@ const PARTICLE_VERT = `
   }
 
   void main() {
-    vec3 pos = position;
-
-    vec2 sampleUv =
-      aUv - 0.5;
-
-    if (
-      uContainerAspect >
-      uVideoAspect
-    ) {
-      sampleUv.y *=
-        uVideoAspect /
-        uContainerAspect;
-    } else {
-      sampleUv.x *=
-        uContainerAspect /
-        uVideoAspect;
-    }
-
-    sampleUv =
+    vUv =
       rotate2D(
-        sampleUv,
+        aUv - 0.5,
         uRotation
-      );
+      ) +
+      0.5;
 
-    sampleUv += 0.5;
+    vec3 pos = vec3(position.xy * uVideoScale, 0.0);
 
-    vUv = sampleUv;
-
-    vec2 physicalPos =
-      pos.xy *
+    vec2 aspect =
       vec2(
-        uContainerAspect,
+        uCanvasAspect,
         1.0
       );
 
+    vec2 physicalPos =
+      position.xy *
+      uVideoScale *
+      aspect;
+
+    // Scatter distances are relative to the video size, so the effect
+    // reads the same however large the video is drawn.
     float scatterAmount =
       uScatter *
+      uVideoScale.y *
       (
         0.4 +
         aRandom.x * 1.6
@@ -1056,7 +1209,7 @@ const PARTICLE_VERT = `
 
     vec2 flow =
       flowField(
-        physicalPos * 1.5 +
+        position.xy * 1.5 +
         aRandom.xy,
 
         uTime +
@@ -1081,9 +1234,16 @@ const PARTICLE_VERT = `
 
     pos.xy +=
       displacement /
-      vec2(
-        uContainerAspect,
-        1.0
+      aspect;
+
+    // Scattered particles thin out towards the canvas edge so the cloud
+    // stays round instead of showing the canvas rectangle.
+    vEdge =
+      1.0 -
+      smoothstep(
+        0.7,
+        1.0,
+        length(pos.xy)
       );
 
     vAlpha =
@@ -1114,11 +1274,13 @@ const PARTICLE_VERT = `
 `;
 
 const PARTICLE_FRAG = `
-  uniform sampler2D uTexture;
+  ${PROCESS_SAMPLE_CHUNK}
+
   uniform float uTransition;
 
   varying vec2 vUv;
   varying float vAlpha;
+  varying float vEdge;
 
   void main() {
     vec2 center =
@@ -1152,10 +1314,7 @@ const PARTICLE_FRAG = `
       );
 
     vec4 color =
-      texture2D(
-        uTexture,
-        vUv
-      );
+      sampleProcessVideo(vUv);
 
     gl_FragColor =
       vec4(
@@ -1164,6 +1323,7 @@ const PARTICLE_FRAG = `
         color.a *
         vAlpha *
         pointAlpha *
+        vEdge *
         uTransition
       );
   }
@@ -1205,9 +1365,11 @@ function buildStepNodes(wrap, count) {
   return nodes;
 }
 
-function positionStepNodes(nodes, isMobile, total) {
+function positionStepNodes(nodes, isMobile) {
+  const lastIndex = nodes.length - 1;
+
   nodes.forEach((node, index) => {
-    const percentage = total === 1 ? 0 : (index / (total - 1)) * 100;
+    const percentage = lastIndex <= 0 ? 0 : (index / lastIndex) * 100;
 
     node.style.top = isMobile ? "50%" : `${percentage}%`;
 
