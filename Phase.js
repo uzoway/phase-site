@@ -78,13 +78,21 @@ function initHeroSequence() {
 
 /* -- PROCESS VIDEO STEP ANIMATION -- */
 const SHOW_STEP_INDICATORS = true;
-const PROCESS_TRANSITION_SIDE_RATIO = 0.1;
+const PROCESS_SECTION_SCROLL = 50;
 const PROCESS_VIDEO_FIT = 0.9;
 const PROCESS_VIDEO_MAX_WIDTH = 1.15;
 const PROCESS_INTRO_FADE = 0.4;
 const PROCESS_FALLBACK_FPS = 24;
-const PROCESS_PARTICLE_GRID = 320;
 const PROCESS_MOBILE_SOURCES_QUERY = "(max-width: 767px)";
+
+// Timed handoff between sections: the outgoing video shrinks and fades, then
+// the incoming one settles in from a larger, blurred state.
+const PROCESS_OUT_DURATION = 0.55;
+const PROCESS_OUT_SCALE = 0.75;
+const PROCESS_IN_DURATION = 0.9;
+const PROCESS_IN_DELAY = 0.4;
+const PROCESS_IN_SCALE = 1.5;
+const PROCESS_IN_BLUR_RATIO = 0.03;
 
 function initProcessAnimation() {
   const section = document.querySelector('[data-process="section"]');
@@ -124,7 +132,7 @@ function initProcessAnimation() {
   const total = texts.length;
 
   // One dot at the start of every section plus one closing dot, so each
-  // section spans dot N -> dot N+1 and transitions land on dots 2..N.
+  // section spans dot N -> dot N+1 and transitions fire on dots 2..N.
   const stepNodes = SHOW_STEP_INDICATORS
     ? buildStepNodes(progressWrap, total + 1)
     : [];
@@ -194,7 +202,6 @@ function initProcessAnimation() {
         });
       }
 
-      scenes[0].setVisualState(0, 0, 0);
       scenes[0].showStill();
 
       return;
@@ -213,13 +220,11 @@ function initProcessAnimation() {
         const barAxis = isMobile ? "scaleX" : "scaleY";
         const barOrigin = isMobile ? "left center" : "top center";
 
-        const stepSlot = 1 / total;
-        const transitionSide = stepSlot * PROCESS_TRANSITION_SIDE_RATIO;
+        const mountBlur = videoMounts.map(() => ({ value: 0 }));
 
         let activeScenes = new Set();
         let sectionVisible = false;
-        let scrollDirection = 1;
-        let lastProgress = 0;
+        let currentStep = -1;
 
         positionStepNodes(stepNodes, isMobile);
 
@@ -231,8 +236,9 @@ function initProcessAnimation() {
 
         gsap.set(videoMounts, {
           autoAlpha: 0,
+          scale: 1,
           zIndex: 0,
-          willChange: "opacity",
+          willChange: "transform, opacity, filter",
         });
 
         gsap.set(progressBar, {
@@ -250,46 +256,55 @@ function initProcessAnimation() {
           return Math.min(Math.max(value, min), max);
         }
 
-        function smoothstep(value) {
-          const t = clamp(value);
-          return t * t * (3 - 2 * t);
-        }
-
-        function getTransition(progress) {
-          for (let to = 1; to < total; to++) {
-            const center = to / total;
-            const start = center - transitionSide;
-            const end = center + transitionSide;
-
-            if (progress >= start && progress <= end) {
-              return {
-                from: to - 1,
-                to,
-                progress: clamp((progress - start) / (end - start)),
-              };
-            }
-          }
-
-          return null;
-        }
-
-        function getStableStep(progress) {
+        function getStep(progress) {
           return Math.min(total - 1, Math.floor(clamp(progress) * total));
         }
 
-        // Plays the scenes that are on screen and pauses the rest. Scenes
-        // entered while scrolling down replay their intro clip.
-        function setActiveScenes(indices) {
-          const next = new Set(sectionVisible ? indices : []);
+        function isShown(element) {
+          return gsap.getProperty(element, "opacity") > 0.001;
+        }
+
+        function applyBlur(index) {
+          const blur = mountBlur[index].value;
+
+          videoMounts[index].style.filter =
+            blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : "";
+        }
+
+        function resetElement(element, index, isMount) {
+          gsap.killTweensOf(element);
+
+          if (isMount) {
+            gsap.killTweensOf(mountBlur[index]);
+            mountBlur[index].value = 0;
+            applyBlur(index);
+          }
+
+          gsap.set(element, isMount
+            ? { autoAlpha: 0, scale: 1, zIndex: 0 }
+            : { autoAlpha: 0, y: 15 });
+        }
+
+        // Plays every scene that is on screen or settling in, pauses the
+        // rest. Scenes entered while scrolling down replay their intro clip.
+        function syncPlayback(direction = 1) {
+          const next = new Set(
+            sectionVisible
+              ? videoMounts
+                  .map((mount, index) => index)
+                  .filter(
+                    (index) =>
+                      index === currentStep || isShown(videoMounts[index]),
+                  )
+              : [],
+          );
 
           activeScenes.forEach((index) => {
             if (!next.has(index)) scenes[index].deactivate();
           });
 
           next.forEach((index) => {
-            if (!activeScenes.has(index)) {
-              scenes[index].activate(scrollDirection);
-            }
+            if (!activeScenes.has(index)) scenes[index].activate(direction);
           });
 
           activeScenes = next;
@@ -301,50 +316,143 @@ function initProcessAnimation() {
           activeScenes.forEach((index) => scenes[index].tick(delta));
         }
 
-        function hideTexts() {
-          gsap.set(texts, {
-            autoAlpha: 0,
-            y: 15,
-          });
-        }
+        function showStepInstantly(step) {
+          currentStep = step;
 
-        function showStableText(step) {
-          hideTexts();
+          videoMounts.forEach((mount, index) => resetElement(mount, index, true));
+          texts.forEach((text, index) => resetElement(text, index, false));
+
+          gsap.set(videoMounts[step], {
+            autoAlpha: 1,
+            zIndex: 1,
+          });
 
           gsap.set(texts[step], {
             autoAlpha: 1,
             y: 0,
           });
+
+          scenes[step].render();
         }
 
-        function showTransitionText(from, to, transitionProgress) {
-          const eased = smoothstep(transitionProgress);
+        function transitionTo(step, direction) {
+          const incoming = videoMounts[step];
+          const incomingShown = isShown(incoming);
 
-          hideTexts();
+          const outgoing = videoMounts.filter(
+            (mount, index) => index !== step && isShown(mount),
+          );
 
-          gsap.set(texts[from], {
-            autoAlpha: 1 - eased,
-            y: -12 * eased,
+          // Wait for the outgoing video to mostly clear before the next one
+          // arrives, unless we are reversing back into a half-visible one.
+          const delay =
+            outgoing.length && !incomingShown ? PROCESS_IN_DELAY : 0;
+
+          currentStep = step;
+
+          videoMounts.forEach((mount, index) => {
+            if (index === step) return;
+
+            if (!isShown(mount)) {
+              resetElement(mount, index, true);
+              return;
+            }
+
+            gsap.killTweensOf(mount);
+            gsap.killTweensOf(mountBlur[index]);
+
+            gsap.set(mount, { zIndex: 0 });
+
+            gsap.to(mount, {
+              scale: PROCESS_OUT_SCALE,
+              autoAlpha: 0,
+              duration: PROCESS_OUT_DURATION,
+              ease: "power2.in",
+              onComplete: () => {
+                resetElement(mount, index, true);
+                syncPlayback(direction);
+              },
+            });
+
+            gsap.to(mountBlur[index], {
+              value: 0,
+              duration: PROCESS_OUT_DURATION,
+              onUpdate: () => applyBlur(index),
+            });
           });
 
-          gsap.set(texts[to], {
-            autoAlpha: eased,
-            y: 12 * (1 - eased),
-          });
-        }
+          gsap.killTweensOf(incoming);
+          gsap.killTweensOf(mountBlur[step]);
 
-        function hideVideoMounts() {
-          gsap.set(videoMounts, {
-            autoAlpha: 0,
-            zIndex: 0,
-          });
-        }
+          gsap.set(incoming, { zIndex: 1 });
 
-        function showVideoMount(index, opacity = 1, zIndex = 1) {
-          gsap.set(videoMounts[index], {
-            autoAlpha: opacity,
-            zIndex,
+          if (!incomingShown) {
+            gsap.set(incoming, {
+              autoAlpha: 0,
+              scale: PROCESS_IN_SCALE,
+            });
+
+            mountBlur[step].value = incoming.clientHeight * PROCESS_IN_BLUR_RATIO;
+            applyBlur(step);
+          }
+
+          gsap.to(incoming, {
+            scale: 1,
+            duration: PROCESS_IN_DURATION,
+            delay,
+            ease: "power3.out",
           });
+
+          gsap.to(incoming, {
+            autoAlpha: 1,
+            duration: PROCESS_IN_DURATION * 0.6,
+            delay,
+            ease: "power1.out",
+          });
+
+          gsap.to(mountBlur[step], {
+            value: 0,
+            duration: PROCESS_IN_DURATION,
+            delay,
+            ease: "power2.out",
+            onUpdate: () => applyBlur(step),
+          });
+
+          texts.forEach((text, index) => {
+            if (index === step) return;
+
+            if (!isShown(text)) {
+              resetElement(text, index, false);
+              return;
+            }
+
+            gsap.killTweensOf(text);
+
+            gsap.to(text, {
+              autoAlpha: 0,
+              y: -12,
+              duration: PROCESS_OUT_DURATION,
+              ease: "power2.in",
+            });
+          });
+
+          const incomingText = texts[step];
+
+          gsap.killTweensOf(incomingText);
+
+          if (!isShown(incomingText)) {
+            gsap.set(incomingText, { autoAlpha: 0, y: 12 });
+          }
+
+          gsap.to(incomingText, {
+            autoAlpha: 1,
+            y: 0,
+            duration: PROCESS_IN_DURATION * 0.8,
+            delay,
+            ease: "power2.out",
+          });
+
+          syncPlayback(direction);
         }
 
         function updateProgress(progress) {
@@ -362,70 +470,22 @@ function initProcessAnimation() {
           });
         }
 
-        function renderStableStep(step) {
-          hideVideoMounts();
-
-          showVideoMount(step, 1, 2);
-
-          showStableText(step);
-
-          setActiveScenes([step]);
-
-          scenes[step].setVisualState(0, 0, step * 4);
-
-          scenes[step].render();
-        }
-
-        function renderParticleTransition(transition) {
-          const { from, to, progress: transitionProgress } = transition;
-
-          const eased = smoothstep(transitionProgress);
-
-          const flowTime = from * 4 + eased * 3;
-
-          hideVideoMounts();
-
-          showVideoMount(from, 1, 2);
-
-          showVideoMount(to, 1, 1);
-
-          showTransitionText(from, to, transitionProgress);
-
-          setActiveScenes([from, to]);
-
-          scenes[from].setVisualState(eased, eased, flowTime);
-
-          scenes[to].setVisualState(1 - eased, 1 - eased, flowTime);
-
-          scenes[from].render();
-          scenes[to].render();
-        }
-
         function updateProcessState(rawProgress) {
           const progress = clamp(rawProgress);
 
-          if (progress !== lastProgress) {
-            scrollDirection = progress > lastProgress ? 1 : -1;
-            lastProgress = progress;
-          }
-
           updateProgress(progress);
 
-          const transition = getTransition(progress);
+          const step = getStep(progress);
 
-          if (!transition) {
-            renderStableStep(getStableStep(progress));
+          if (step === currentStep) return;
 
-            return;
-          }
-
-          renderParticleTransition(transition);
+          transitionTo(step, step > currentStep ? 1 : -1);
         }
 
         const processTrigger = ScrollTrigger.create({
           trigger: section,
           start: "top top",
-          end: () => `+=${total * 100}%`,
+          end: () => `+=${total * PROCESS_SECTION_SCROLL}%`,
           pin: true,
           pinSpacing: true,
           anticipatePin: 1,
@@ -439,7 +499,14 @@ function initProcessAnimation() {
           onRefresh: (self) => {
             scenes.forEach((scene) => scene.refresh());
 
-            updateProcessState(self.progress);
+            const progress = clamp(self.progress);
+
+            updateProgress(progress);
+
+            if (getStep(progress) !== currentStep) {
+              showStepInstantly(getStep(progress));
+              syncPlayback();
+            }
           },
         });
 
@@ -452,9 +519,8 @@ function initProcessAnimation() {
 
           onToggle: (self) => {
             sectionVisible = self.isActive;
-            scrollDirection = self.direction;
 
-            updateProcessState(processTrigger.progress);
+            syncPlayback(self.direction);
           },
         });
 
@@ -462,26 +528,35 @@ function initProcessAnimation() {
 
         scenes.forEach((scene) => scene.refresh());
 
-        sectionVisible = visibilityTrigger.isActive;
-        lastProgress = processTrigger.progress;
+        const initialProgress = clamp(processTrigger.progress);
 
-        updateProcessState(processTrigger.progress);
+        updateProgress(initialProgress);
+        showStepInstantly(getStep(initialProgress));
+
+        sectionVisible = visibilityTrigger.isActive;
+        syncPlayback();
 
         return () => {
           gsap.ticker.remove(tickActiveScenes);
 
           sectionVisible = false;
-          setActiveScenes([]);
+          syncPlayback();
+
+          gsap.killTweensOf([...videoMounts, ...texts, ...mountBlur]);
 
           processTrigger.kill();
           visibilityTrigger.kill();
+
+          videoMounts.forEach((mount) => {
+            mount.style.filter = "";
+          });
 
           gsap.set(texts, {
             clearProps: "opacity,visibility,transform,willChange",
           });
 
           gsap.set(videoMounts, {
-            clearProps: "opacity,visibility,zIndex,willChange",
+            clearProps: "opacity,visibility,transform,zIndex,willChange",
           });
         };
       },
@@ -691,22 +766,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
       value: new THREE.Vector3(background.r, background.g, background.b),
     },
 
-    uTransition: {
-      value: 0,
-    },
-
-    uScatter: {
-      value: 0,
-    },
-
-    uTime: {
-      value: 0,
-    },
-
-    uCanvasAspect: {
-      value: 1,
-    },
-
     uVideoScale: {
       value: new THREE.Vector2(PROCESS_VIDEO_FIT, PROCESS_VIDEO_FIT),
     },
@@ -730,44 +789,12 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
 
   scene.add(videoMesh);
 
-  const particleGeometry = buildParticleGeometry(PROCESS_PARTICLE_GRID);
-
-  const particleMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      ...uniforms,
-
-      uPixelRatio: {
-        value: Math.min(window.devicePixelRatio, 2),
-      },
-
-      uSize: {
-        value: 2.5,
-      },
-    },
-
-    vertexShader: PARTICLE_VERT,
-
-    fragmentShader: PARTICLE_FRAG,
-
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.NormalBlending,
-  });
-
-  const particles = new THREE.Points(particleGeometry, particleMaterial);
-
-  scene.add(particles);
-
   let destroyed = false;
   let active = false;
   let phase = introClip ? "idle" : "loop";
   let introFade = null;
   let needsRender = true;
   let lastFrameTimes = clips.map(() => -1);
-
-  function clamp(value, min = 0, max = 1) {
-    return Math.min(Math.max(value, min), max);
-  }
 
   function getVideoAspect() {
     const { videoWidth, videoHeight } = loopClip.video;
@@ -797,14 +824,7 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
 
     const videoHeight = videoWidth / videoAspect;
 
-    uniforms.uCanvasAspect.value = width / height;
-
     uniforms.uVideoScale.value.set(videoWidth / width, videoHeight / height);
-
-    particleMaterial.uniforms.uSize.value = Math.max(
-      1.5,
-      (videoHeight / PROCESS_PARTICLE_GRID) * 2,
-    );
 
     needsRender = true;
   }
@@ -815,11 +835,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
     textures.forEach((texture) => {
       if (texture.image.readyState >= 2) texture.needsUpdate = true;
     });
-
-    const showParticles = uniforms.uTransition.value > 0.001;
-
-    particles.visible = showParticles;
-    videoMesh.visible = uniforms.uTransition.value < 0.999;
 
     renderer.render(scene, camera);
 
@@ -927,16 +942,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
     render();
   }
 
-  function setVisualState(transition, scatter, time) {
-    uniforms.uTransition.value = clamp(transition);
-
-    uniforms.uScatter.value = clamp(scatter);
-
-    uniforms.uTime.value = time;
-
-    needsRender = true;
-  }
-
   function resize() {
     const width = mount.clientWidth;
     const height = mount.clientHeight || width;
@@ -948,8 +953,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
     renderer.setPixelRatio(pixelRatio);
 
     renderer.setSize(width, height, false);
-
-    particleMaterial.uniforms.uPixelRatio.value = pixelRatio;
 
     updateLayout();
     render();
@@ -1009,10 +1012,8 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
     });
 
     videoMaterial.dispose();
-    particleMaterial.dispose();
 
     videoGeometry.dispose();
-    particleGeometry.dispose();
 
     textures.forEach((texture) => texture.dispose());
     renderer.dispose();
@@ -1026,57 +1027,11 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
     deactivate,
     showStill,
     refresh: resize,
-    setVisualState,
     destroy,
   };
 }
 
-function buildParticleGeometry(gridSize) {
-  const count = gridSize * gridSize;
-
-  const positions = new Float32Array(count * 3);
-
-  const uvs = new Float32Array(count * 2);
-
-  const randoms = new Float32Array(count * 3);
-
-  let index = 0;
-
-  for (let y = 0; y < gridSize; y++) {
-    for (let x = 0; x < gridSize; x++) {
-      positions[index * 3] = (x / (gridSize - 1)) * 2 - 1;
-
-      positions[index * 3 + 1] = (y / (gridSize - 1)) * 2 - 1;
-
-      positions[index * 3 + 2] = 0;
-
-      uvs[index * 2] = x / (gridSize - 1);
-
-      uvs[index * 2 + 1] = y / (gridSize - 1);
-
-      randoms[index * 3] = Math.random();
-
-      randoms[index * 3 + 1] = Math.random();
-
-      randoms[index * 3 + 2] = Math.random();
-
-      index++;
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry();
-
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-
-  geometry.setAttribute("aUv", new THREE.BufferAttribute(uvs, 2));
-
-  geometry.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 3));
-
-  return geometry;
-}
-
-// Shared by both fragment shaders: blends the intro clip into the loop clip
-// and fades pixels that match the section background, so the video frame has
+// Blends the intro clip into the loop clip and fades pixels that match the section background, so the video frame has
 // no visible edge against the page.
 const PROCESS_SAMPLE_CHUNK = `
   uniform sampler2D uTexture;
@@ -1124,8 +1079,6 @@ const VIDEO_VERT = `
 const VIDEO_FRAG = `
   ${PROCESS_SAMPLE_CHUNK}
 
-  uniform float uTransition;
-
   varying vec2 vUv;
 
   void main() {
@@ -1138,201 +1091,7 @@ const VIDEO_FRAG = `
       discard;
     }
 
-    vec4 color = sampleProcessVideo(vUv);
-
-    gl_FragColor =
-      vec4(
-        color.rgb,
-        color.a *
-        (1.0 - uTransition)
-      );
-  }
-`;
-
-const PARTICLE_VERT = `
-  attribute vec2 aUv;
-  attribute vec3 aRandom;
-
-  uniform float uScatter;
-  uniform float uTime;
-  uniform float uPixelRatio;
-  uniform float uSize;
-  uniform float uCanvasAspect;
-  uniform vec2 uVideoScale;
-  uniform float uRotation;
-
-  varying vec2 vUv;
-  varying float vAlpha;
-  varying float vEdge;
-
-  vec2 rotate2D(vec2 value, float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return mat2(c, -s, s, c) * value;
-  }
-
-  vec2 flowField(vec2 point, float time) {
-    float n1 =
-      sin(point.x * 3.0 + time * 0.5) *
-      cos(point.y * 2.5 + time * 0.4);
-
-    float n2 =
-      cos(point.x * 2.0 - time * 0.3) *
-      sin(point.y * 3.5 - time * 0.6);
-
-    return vec2(n1, n2);
-  }
-
-  void main() {
-    vUv =
-      rotate2D(
-        aUv - 0.5,
-        uRotation
-      ) +
-      0.5;
-
-    vec3 pos = vec3(position.xy * uVideoScale, 0.0);
-
-    vec2 aspect =
-      vec2(
-        uCanvasAspect,
-        1.0
-      );
-
-    vec2 physicalPos =
-      position.xy *
-      uVideoScale *
-      aspect;
-
-    // Scatter distances are relative to the video size, so the effect
-    // reads the same however large the video is drawn.
-    float scatterAmount =
-      uScatter *
-      uVideoScale.y *
-      (
-        0.4 +
-        aRandom.x * 1.6
-      );
-
-    vec2 flow =
-      flowField(
-        position.xy * 1.5 +
-        aRandom.xy,
-
-        uTime +
-        aRandom.z *
-        6.28
-      );
-
-    vec2 displacement =
-      flow *
-      scatterAmount *
-      0.5;
-
-    vec2 radial =
-      normalize(
-        physicalPos +
-        vec2(0.0001)
-      ) *
-      scatterAmount *
-      0.2;
-
-    displacement += radial;
-
-    pos.xy +=
-      displacement /
-      aspect;
-
-    // Scattered particles thin out towards the canvas edge so the cloud
-    // stays round instead of showing the canvas rectangle.
-    vEdge =
-      1.0 -
-      smoothstep(
-        0.7,
-        1.0,
-        length(pos.xy)
-      );
-
-    vAlpha =
-      1.0 -
-      smoothstep(
-        0.3,
-        0.95 +
-        aRandom.x *
-        0.05,
-        uScatter
-      );
-
-    gl_Position =
-      vec4(
-        pos,
-        1.0
-      );
-
-    gl_PointSize =
-      uSize *
-      uPixelRatio *
-      (
-        1.0 +
-        aRandom.z *
-        0.4
-      );
-  }
-`;
-
-const PARTICLE_FRAG = `
-  ${PROCESS_SAMPLE_CHUNK}
-
-  uniform float uTransition;
-
-  varying vec2 vUv;
-  varying float vAlpha;
-  varying float vEdge;
-
-  void main() {
-    vec2 center =
-      gl_PointCoord -
-      0.5;
-
-    float distanceFromCenter =
-      length(center);
-
-    if (
-      distanceFromCenter >
-      0.5
-    ) {
-      discard;
-    }
-
-    if (
-      vUv.x < 0.0 ||
-      vUv.x > 1.0 ||
-      vUv.y < 0.0 ||
-      vUv.y > 1.0
-    ) {
-      discard;
-    }
-
-    float pointAlpha =
-      smoothstep(
-        0.5,
-        0.4,
-        distanceFromCenter
-      );
-
-    vec4 color =
-      sampleProcessVideo(vUv);
-
-    gl_FragColor =
-      vec4(
-        color.rgb,
-
-        color.a *
-        vAlpha *
-        pointAlpha *
-        vEdge *
-        uTransition
-      );
+    gl_FragColor = sampleProcessVideo(vUv);
   }
 `;
 
