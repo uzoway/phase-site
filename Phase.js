@@ -7,6 +7,11 @@ function initHeroSequence() {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
+  // Optional Webflow image of the first frame, shown until the canvas takes
+  // over. Hidden after the first draw so it never shows through the frames'
+  // transparent areas.
+  const poster = document.querySelector('[data-canvas-poster="hero"]');
+
   const config = {
     frames: 53,
     fps: 24,
@@ -42,6 +47,8 @@ function initHeroSequence() {
     const y = canvas.height / 2 - (img.height / 2) * scale;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+    if (poster) poster.style.visibility = "hidden";
   }
 
   function loop(time) {
