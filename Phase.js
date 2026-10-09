@@ -8,9 +8,9 @@ function initHeroSequence() {
   ctx.imageSmoothingQuality = "high";
 
   const config = {
-    frames: 34,
-    fps: 30,
-    url: "https://cdn.jsdelivr.net/gh/uzoway/phase-site@main/Phase%20Header/phase-header",
+    frames: 53,
+    fps: 24,
+    url: "https://cdn.jsdelivr.net/gh/uzoway/phase-site@bb0de94a03b1ae118a23995ecd50ae45e44aaf4a/Phase%20Header/phase-header",
     ext: ".webp",
   };
 
