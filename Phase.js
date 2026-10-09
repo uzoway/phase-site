@@ -59,9 +59,16 @@ function initHeroSequence() {
     img.src = `${config.url}${i.toString().padStart(2, "0")}${config.ext}`;
     img.onload = function () {
       loaded++;
-      if (loaded === config.frames) {
+
+      // Show the first frame as soon as it arrives and hold it until the
+      // whole sequence has loaded, so the hero is never blank.
+      if (i === 0) {
         resize();
         window.addEventListener("resize", resize);
+      }
+
+      if (loaded === config.frames) {
+        resize();
         requestAnimationFrame(loop);
       }
     };
