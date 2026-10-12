@@ -11,55 +11,179 @@ function initChronicleContact() {
   const style = document.createElement("style");
   style.textContent = `
     [data-contact="host"] { position: relative; }
+
+    [data-contact="trigger"][aria-expanded="true"]::before {
+      transform: scaleX(1);
+      transform-origin: left;
+    }
+
     [data-contact="menu"] {
+      --contact-cyan: var(--_color---primary--cyan, #15b6de);
+      --contact-line: rgba(21, 182, 222, 0.25);
       position: absolute;
       left: 0;
-      bottom: calc(100% + 0.75rem);
+      bottom: calc(100% + 1rem);
       z-index: 5;
-      min-width: 16rem;
+      width: 19rem;
       max-width: calc(100vw - 2.5rem);
-      margin: 0;
-      padding: 0.375rem;
-      list-style: none;
-      background-color: #071020;
-      border: 1px solid rgba(21, 182, 222, 0.35);
+      padding: 1.25rem 1.25rem 0.5rem;
+      background-color: var(--_color---primary--black, #000);
+      border: 1px solid var(--contact-line);
+      text-align: left;
       visibility: hidden;
       opacity: 0;
       transition: opacity 200ms ease, visibility 0s linear 200ms;
     }
+
     [data-contact="menu"][data-open] {
       visibility: visible;
       opacity: 1;
       transition: opacity 200ms ease, visibility 0s;
     }
+
+    [data-contact="corner"] {
+      position: absolute;
+      width: 0.375rem;
+      aspect-ratio: 1;
+      background-color: var(--contact-cyan);
+    }
+
+    [data-contact="corner"]:nth-child(1) { top: -0.1875rem; left: -0.1875rem; }
+    [data-contact="corner"]:nth-child(2) { top: -0.1875rem; right: -0.1875rem; }
+    [data-contact="corner"]:nth-child(3) { bottom: -0.1875rem; left: -0.1875rem; }
+    [data-contact="corner"]:nth-child(4) { bottom: -0.1875rem; right: -0.1875rem; }
+
+    [data-contact="eyebrow"] {
+      margin: 0 0 0.5rem;
+      font-family: var(--_typography---fonts--font-b, sans-serif);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 1.44px;
+      line-height: 1;
+      text-transform: uppercase;
+      background: linear-gradient(91deg, #15b6de 53.86%, #fff 120.97%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    [data-contact="list"] {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    [data-contact="list"] > li + li {
+      border-top: 1px solid var(--contact-line);
+    }
+
     [data-contact="option"] {
       display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 0.25rem;
+      align-items: center;
+      gap: 0.75rem;
       min-height: 2.75rem;
-      padding: 0.75rem 1rem;
-      color: #fff;
+      padding: 0.875rem 0;
+      color: var(--_color---primary--white, #fff);
       text-decoration: none;
     }
-    [data-contact="option"]:hover,
+
     [data-contact="option"]:focus-visible {
-      background-color: rgba(21, 182, 222, 0.08);
+      outline: 0.1875rem solid var(--contact-cyan);
+      outline-offset: 0.25rem;
     }
-    [data-contact="option"]:focus-visible {
-      outline: 0.1875rem solid #15b6de;
-      outline-offset: -0.1875rem;
+
+    [data-contact="dot"] {
+      flex: none;
+      align-self: flex-start;
+      width: 0.5rem;
+      aspect-ratio: 1;
+      margin-top: 0.3rem;
+      background-color: var(--contact-cyan);
+      transition: background-color 300ms ease;
     }
-    [data-contact="label"] { font-size: 0.875rem; line-height: 1.2; }
-    [data-contact="email"] { font-size: 0.75rem; line-height: 1.2; color: #15b6de; }
+
+    [data-contact="text"] {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 0.375rem;
+      min-width: 0;
+    }
+
+    [data-contact="label"] {
+      position: relative;
+      align-self: flex-start;
+      font-family: var(--_typography---fonts--font-a-500, sans-serif);
+      font-size: 1rem;
+      line-height: 1.1;
+    }
+
+    [data-contact="label"]::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: -0.125rem;
+      width: 100%;
+      height: 1px;
+      background-color: currentColor;
+      transform: scaleX(0);
+      transform-origin: right;
+      transition: transform 300ms ease-in-out;
+    }
+
+    [data-contact="email"] {
+      font-family: var(--_typography---fonts--font-c, monospace);
+      font-size: 0.75rem;
+      line-height: 1.2;
+      color: var(--contact-cyan);
+      text-transform: uppercase;
+      overflow-wrap: anywhere;
+    }
+
+    [data-contact="arrow"] {
+      flex: none;
+      width: 1.5rem;
+      height: auto;
+      color: rgba(255, 255, 255, 0.6);
+      transition: color 300ms ease;
+    }
+
+    [data-contact="option"]:is(:hover, :focus-visible) [data-contact="dot"] {
+      background-color: var(--_color---primary--white, #fff);
+    }
+
+    [data-contact="option"]:is(:hover, :focus-visible) [data-contact="label"]::after {
+      transform: scaleX(1);
+      transform-origin: left;
+    }
+
+    [data-contact="option"]:is(:hover, :focus-visible) [data-contact="arrow"] {
+      color: var(--_color---primary--white, #fff);
+    }
+
     @media (prefers-reduced-motion: no-preference) {
       [data-contact="menu"] {
-        transform: translate3d(0, 0.25rem, 0);
-        transition: opacity 200ms ease, transform 200ms ease, visibility 0s linear 200ms;
+        clip-path: inset(calc(100% + 0.5rem) -0.5rem -0.5rem -0.5rem);
+        transition:
+          opacity 200ms ease,
+          clip-path 400ms cubic-bezier(0.16, 1, 0.3, 1),
+          visibility 0s linear 400ms;
       }
+
       [data-contact="menu"][data-open] {
-        transform: none;
-        transition: opacity 200ms ease, transform 250ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
+        clip-path: inset(-0.5rem);
+        transition:
+          opacity 200ms ease,
+          clip-path 450ms cubic-bezier(0.16, 1, 0.3, 1),
+          visibility 0s;
+      }
+
+      [data-contact="arrow"] {
+        transition: color 300ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      [data-contact="option"]:is(:hover, :focus-visible) [data-contact="arrow"] {
+        transform: translate3d(0.25rem, 0, 0);
       }
     }
   `;
@@ -68,25 +192,43 @@ function initChronicleContact() {
   const host = trigger.parentElement;
   host.setAttribute("data-contact", "host");
 
-  const menu = document.createElement("ul");
+  const make = (tag, part, text) => {
+    const el = document.createElement(tag);
+    if (part) el.setAttribute("data-contact", part);
+    if (text) el.textContent = text;
+    return el;
+  };
+
+  const menu = make("div", "menu");
   menu.id = "contact-menu";
-  menu.setAttribute("data-contact", "menu");
-  menu.setAttribute("aria-label", "Contact");
+  for (let i = 0; i < 4; i++) {
+    const corner = make("span", "corner");
+    corner.setAttribute("aria-hidden", "true");
+    menu.append(corner);
+  }
+  const eyebrow = make("p", "eyebrow", "Get in touch");
+  eyebrow.setAttribute("aria-hidden", "true");
+  const list = make("ul", "list");
+  list.setAttribute("aria-label", "Contact options");
+
   OPTIONS.forEach(({ label, email }) => {
-    const item = document.createElement("li");
-    const link = document.createElement("a");
+    const link = make("a", "option");
     link.href = `mailto:${email}`;
-    link.setAttribute("data-contact", "option");
-    const name = document.createElement("span");
-    name.setAttribute("data-contact", "label");
-    name.textContent = label;
-    const address = document.createElement("span");
-    address.setAttribute("data-contact", "email");
-    address.textContent = email;
-    link.append(name, address);
+    const dot = make("span", "dot");
+    dot.setAttribute("aria-hidden", "true");
+    const text = make("span", "text");
+    text.append(make("span", "label", label), make("span", "email", email));
+    link.append(dot, text);
+    link.insertAdjacentHTML(
+      "beforeend",
+      '<svg data-contact="arrow" viewBox="0 0 24 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true" focusable="false"><path d="M0 5h23M18.5 0.5 23 5l-4.5 4.5"/></svg>',
+    );
+    const item = document.createElement("li");
     item.append(link);
-    menu.append(item);
+    list.append(item);
   });
+
+  menu.append(eyebrow, list);
   host.append(menu);
 
   const options = Array.from(menu.querySelectorAll('[data-contact="option"]'));
