@@ -26,7 +26,7 @@ function initChronicleContact() {
       z-index: 5;
       width: 19rem;
       max-width: calc(100vw - 2.5rem);
-      padding: 1.25rem 1.25rem 0.5rem;
+      padding: 0.5rem 1.25rem;
       background-color: var(--_color---primary--black, #000);
       border: 1px solid var(--contact-line);
       text-align: left;
@@ -52,20 +52,6 @@ function initChronicleContact() {
     [data-contact="corner"]:nth-child(2) { top: -0.1875rem; right: -0.1875rem; }
     [data-contact="corner"]:nth-child(3) { bottom: -0.1875rem; left: -0.1875rem; }
     [data-contact="corner"]:nth-child(4) { bottom: -0.1875rem; right: -0.1875rem; }
-
-    [data-contact="eyebrow"] {
-      margin: 0 0 0.5rem;
-      font-family: var(--_typography---fonts--font-b, sans-serif);
-      font-size: 0.75rem;
-      font-weight: 500;
-      letter-spacing: 1.44px;
-      line-height: 1;
-      text-transform: uppercase;
-      background: linear-gradient(91deg, #15b6de 53.86%, #fff 120.97%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
 
     [data-contact="list"] {
       margin: 0;
@@ -140,14 +126,6 @@ function initChronicleContact() {
       overflow-wrap: anywhere;
     }
 
-    [data-contact="arrow"] {
-      flex: none;
-      width: 1.5rem;
-      height: auto;
-      color: rgba(255, 255, 255, 0.6);
-      transition: color 300ms ease;
-    }
-
     [data-contact="option"]:is(:hover, :focus-visible) [data-contact="dot"] {
       background-color: var(--_color---primary--white, #fff);
     }
@@ -155,10 +133,6 @@ function initChronicleContact() {
     [data-contact="option"]:is(:hover, :focus-visible) [data-contact="label"]::after {
       transform: scaleX(1);
       transform-origin: left;
-    }
-
-    [data-contact="option"]:is(:hover, :focus-visible) [data-contact="arrow"] {
-      color: var(--_color---primary--white, #fff);
     }
 
     @media (prefers-reduced-motion: no-preference) {
@@ -176,14 +150,6 @@ function initChronicleContact() {
           opacity 200ms ease,
           clip-path 450ms cubic-bezier(0.16, 1, 0.3, 1),
           visibility 0s;
-      }
-
-      [data-contact="arrow"] {
-        transition: color 300ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
-      }
-
-      [data-contact="option"]:is(:hover, :focus-visible) [data-contact="arrow"] {
-        transform: translate3d(0.25rem, 0, 0);
       }
     }
   `;
@@ -206,8 +172,6 @@ function initChronicleContact() {
     corner.setAttribute("aria-hidden", "true");
     menu.append(corner);
   }
-  const eyebrow = make("p", "eyebrow", "Get in touch");
-  eyebrow.setAttribute("aria-hidden", "true");
   const list = make("ul", "list");
   list.setAttribute("aria-label", "Contact options");
 
@@ -219,16 +183,12 @@ function initChronicleContact() {
     const text = make("span", "text");
     text.append(make("span", "label", label), make("span", "email", email));
     link.append(dot, text);
-    link.insertAdjacentHTML(
-      "beforeend",
-      '<svg data-contact="arrow" viewBox="0 0 24 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true" focusable="false"><path d="M0 5h23M18.5 0.5 23 5l-4.5 4.5"/></svg>',
-    );
     const item = document.createElement("li");
     item.append(link);
     list.append(item);
   });
 
-  menu.append(eyebrow, list);
+  menu.append(list);
   host.append(menu);
 
   const options = Array.from(menu.querySelectorAll('[data-contact="option"]'));
