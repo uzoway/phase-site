@@ -41,18 +41,6 @@ function initChronicleContact() {
       transition: opacity 200ms ease, visibility 0s;
     }
 
-    [data-contact="corner"] {
-      position: absolute;
-      width: 0.375rem;
-      aspect-ratio: 1;
-      background-color: var(--contact-cyan);
-    }
-
-    [data-contact="corner"]:nth-child(1) { top: -0.1875rem; left: -0.1875rem; }
-    [data-contact="corner"]:nth-child(2) { top: -0.1875rem; right: -0.1875rem; }
-    [data-contact="corner"]:nth-child(3) { bottom: -0.1875rem; left: -0.1875rem; }
-    [data-contact="corner"]:nth-child(4) { bottom: -0.1875rem; right: -0.1875rem; }
-
     [data-contact="list"] {
       margin: 0;
       padding: 0;
@@ -137,7 +125,7 @@ function initChronicleContact() {
 
     @media (prefers-reduced-motion: no-preference) {
       [data-contact="menu"] {
-        clip-path: inset(calc(100% + 0.5rem) -0.5rem -0.5rem -0.5rem);
+        clip-path: inset(100% 0 0 0);
         transition:
           opacity 200ms ease,
           clip-path 400ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -145,7 +133,7 @@ function initChronicleContact() {
       }
 
       [data-contact="menu"][data-open] {
-        clip-path: inset(-0.5rem);
+        clip-path: inset(0);
         transition:
           opacity 200ms ease,
           clip-path 450ms cubic-bezier(0.16, 1, 0.3, 1),
@@ -167,11 +155,6 @@ function initChronicleContact() {
 
   const menu = make("div", "menu");
   menu.id = "contact-menu";
-  for (let i = 0; i < 4; i++) {
-    const corner = make("span", "corner");
-    corner.setAttribute("aria-hidden", "true");
-    menu.append(corner);
-  }
   const list = make("ul", "list");
   list.setAttribute("aria-label", "Contact options");
 
