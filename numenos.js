@@ -742,6 +742,10 @@ function initNumenosMedia() {
       const heroCopy = heroSection && heroSection.querySelector(".hero_wrap");
       const navExtras = nav.querySelector(".nav_right-wrap");
 
+      // The nav sits above the cream until the loader is gone, so the logo
+      // doesn't drop under the last of the wipe when it docks.
+      const navZIndex = nav.style.zIndex;
+      nav.style.zIndex = "10001";
       svg.style.display = "block";
       document.body.appendChild(logo);
       gsap.set(logo, {
@@ -751,7 +755,7 @@ function initNumenosMedia() {
         width: from.width,
         height: from.height,
         margin: 0,
-        zIndex: 10001,
+        zIndex: 10002,
         pointerEvents: "none",
         transformOrigin: "0 0",
         willChange: "transform",
@@ -834,6 +838,7 @@ function initNumenosMedia() {
         function () {
           releaseScroll();
           loader.remove();
+          nav.style.zIndex = navZIndex;
         },
         null,
         CONFIG.loaderRevealDelay + reveal,
