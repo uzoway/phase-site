@@ -419,18 +419,10 @@ function initHeroAnimation() {
   const CROSSFADE_DURATION = 0.4;
 
   const TEXT = {
-    outDuration: 0.3,
-    wordDuration: 0.6,
-    wordStep: 0.2,
-    commaPause: 0.12,
-    sentencePause: 0.3,
-    blur: 6,
-    rise: 20,
+    outDuration: 0.25,
+    wordDuration: 0.45,
+    wordStagger: 0.045,
   };
-
-  const WORD_HIDDEN = prefersReducedMotion
-    ? { opacity: 1 }
-    : { opacity: 0, yPercent: TEXT.rise, filter: `blur(${TEXT.blur}px)` };
 
   let current = before;
   let textTimeline = null;
@@ -494,14 +486,11 @@ function initHeroAnimation() {
           tag: "span",
           aria: "none",
         }).words;
-        gsap.set(state.words, { display: "inline-block" });
       } else {
         state.words = [state.text];
       }
 
-      gsap.set(state.words, WORD_HIDDEN);
-
-      if (prefersReducedMotion) gsap.set(state.text, { autoAlpha: 0 });
+      gsap.set(state.words, { opacity: 0 });
     }
   }
 
@@ -533,13 +522,6 @@ function initHeroAnimation() {
     crossfadeLottie(state);
   }
 
-  function pauseAfter(word) {
-    const end = word.textContent.trim().replace(/["'”’)]+$/, "");
-    if (/[.!?:;]$/.test(end)) return TEXT.sentencePause;
-    if (/[,–—]$/.test(end)) return TEXT.commaPause;
-    return 0;
-  }
-
   function isShowing(state) {
     if (gsap.getProperty(state.text, "opacity") === 0) return false;
     return state.words.some((word) => gsap.getProperty(word, "opacity") > 0);
@@ -555,42 +537,20 @@ function initHeroAnimation() {
     const showing = [outgoing, state].filter(isShowing).map((s) => s.text);
     if (showing.length) {
       tl.to(showing, {
-        autoAlpha: 0,
-        duration: TEXT.outDuration,
-        ease: "power2.out",
-        ...(prefersReducedMotion ? {} : { filter: `blur(${TEXT.blur / 2}px)` }),
-      });
-    }
-
-    if (prefersReducedMotion) {
-      tl.to(state.text, {
-        autoAlpha: 1,
+        opacity: 0,
         duration: TEXT.outDuration,
         ease: "power2.out",
       });
-      return;
     }
 
-    tl.set([outgoing.text, state.text], { autoAlpha: 1, clearProps: "filter" })
-      .set([...outgoing.words, ...state.words], WORD_HIDDEN)
-      .addLabel("reveal");
-
-    let at = 0;
-    state.words.forEach((word) => {
-      tl.to(
-        word,
-        {
-          opacity: 1,
-          yPercent: 0,
-          filter: "blur(0px)",
-          duration: TEXT.wordDuration,
-          ease: "power4.out",
-          clearProps: "filter",
-        },
-        `reveal+=${at}`,
-      );
-      at += TEXT.wordStep + pauseAfter(word);
-    });
+    tl.set([outgoing.text, state.text], { opacity: 1 })
+      .set([...outgoing.words, ...state.words], { opacity: 0 })
+      .to(state.words, {
+        opacity: 1,
+        duration: TEXT.wordDuration,
+        ease: "power2.out",
+        stagger: TEXT.wordStagger,
+      });
   }
 
   function placeHighlight(nav, instant = false) {
