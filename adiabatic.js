@@ -537,13 +537,13 @@ function initHeroAnimation() {
     const showing = [outgoing, state].filter(isShowing).map((s) => s.text);
     if (showing.length) {
       tl.to(showing, {
-        opacity: 0,
+        autoAlpha: 0,
         duration: TEXT.outDuration,
         ease: "power2.out",
       });
     }
 
-    tl.set([outgoing.text, state.text], { opacity: 1 })
+    tl.set([outgoing.text, state.text], { autoAlpha: 1 })
       .set([...outgoing.words, ...state.words], { opacity: 0 })
       .to(state.words, {
         opacity: 1,
