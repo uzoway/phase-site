@@ -1,11 +1,6 @@
-/* -- Adiabatic --
-   Loaded site-wide from Webflow (Site settings > Custom code > Footer). Every
-   init checks for its own elements first, so pages without them skip it. */
-
 const DOTLOTTIE_SRC =
   "https://cdn.jsdelivr.net/npm/@lottiefiles/dotlottie-web@0.81.0/+esm";
 
-// The preloader and the hero share one copy of the player.
 let dotLottiePromise;
 function loadDotLottie() {
   dotLottiePromise ??= import(DOTLOTTIE_SRC).then((mod) => mod.DotLottie);
@@ -47,7 +42,6 @@ function initClipboardInteraction() {
 
   const mm = gsap.matchMedia();
 
-  // Desktop: top right, no text swap.
   mm.add("(min-width: 767px)", () => {
     gsap.set(modal, {
       x: 0,
@@ -91,7 +85,6 @@ function initClipboardInteraction() {
     return () => button.removeEventListener("click", handleClick);
   });
 
-  // Mobile: bottom centre, swaps the button text.
   mm.add("(max-width: 766px)", () => {
     gsap.set(modal, {
       x: "-50%",
@@ -139,10 +132,7 @@ function initClipboardInteraction() {
   });
 }
 
-/* -- Preloader --
-   Plays the loading Lottie once, then fades out when both the animation and
-   the page have finished (or after MAX_DURATION). Announces `preloader:done`
-   so the hero knows when to start. */
+/* -- Preloader -- */
 function initPreloader() {
   const MAX_DURATION = 6000;
   const wrap = document.querySelector("[data-preloader-wrap]");
@@ -171,7 +161,6 @@ function initPreloader() {
     });
   };
 
-  // If the player can't load, don't hold the page behind the loader.
   const skipAnimation = () => {
     animationComplete = true;
     tryExit();
@@ -384,12 +373,7 @@ function initVideoModal() {
   });
 }
 
-/* -- Hero before/after --
-   Two Lotties crossfade while the copy beside them swaps. Each Lottie hands
-   over to the other when it finishes; the buttons jump straight to a state.
-   Desktop and tablet/mobile have their own button group, and both are kept in
-   sync. Each group can hold a [data-hero-lottie="highlight"] that slides
-   behind the active button. */
+/* -- Hero before/after -- */
 function initHeroAnimation() {
   const lottieWrap = document.querySelector('[data-hero-lottie="lottie"]');
   const beforeText = document.querySelector('[data-hero-lottie="before-text"]');
@@ -434,8 +418,6 @@ function initHeroAnimation() {
 
   const CROSSFADE_DURATION = 0.4;
 
-  // Word-by-word reveal, paced close to silent reading speed (~300 wpm) with
-  // a beat after commas and a longer one after full stops and colons.
   const TEXT = {
     outDuration: 0.3,
     wordDuration: 0.6,
@@ -500,8 +482,6 @@ function initHeroAnimation() {
   });
 
   function setupText() {
-    // Stack both paragraphs in one grid cell so the block keeps the height of
-    // the longer one and nothing below it moves when they swap.
     textWrap.style.display = "grid";
 
     for (const state of [before, after]) {
@@ -509,15 +489,11 @@ function initHeroAnimation() {
       state.text.style.position = "static";
 
       if (typeof SplitText !== "undefined") {
-        // aria: "none" keeps the real words in the accessibility tree; an
-        // aria-label on a <p> is ignored by most screen readers.
         state.words = new SplitText(state.text, {
           type: "words",
           tag: "span",
           aria: "none",
         }).words;
-        // Spans stay inline unless told otherwise, and inline elements can't
-        // take a transform.
         gsap.set(state.words, { display: "inline-block" });
       } else {
         state.words = [state.text];
@@ -525,7 +501,6 @@ function initHeroAnimation() {
 
       gsap.set(state.words, WORD_HIDDEN);
 
-      // With reduced motion the paragraphs crossfade instead of revealing.
       if (prefersReducedMotion) gsap.set(state.text, { autoAlpha: 0 });
     }
   }
@@ -558,8 +533,6 @@ function initHeroAnimation() {
     crossfadeLottie(state);
   }
 
-  /* Text */
-
   function pauseAfter(word) {
     const end = word.textContent.trim().replace(/["'”’)]+$/, "");
     if (/[.!?:;]$/.test(end)) return TEXT.sentencePause;
@@ -579,8 +552,6 @@ function initHeroAnimation() {
     const tl = gsap.timeline();
     textTimeline = tl;
 
-    // Fade out whatever is on screen, from wherever it got to. On the first
-    // reveal nothing is showing, so the words start straight away.
     const showing = [outgoing, state].filter(isShowing).map((s) => s.text);
     if (showing.length) {
       tl.to(showing, {
@@ -614,8 +585,6 @@ function initHeroAnimation() {
           filter: "blur(0px)",
           duration: TEXT.wordDuration,
           ease: "power4.out",
-          // A leftover blur(0px) keeps the text on its own layer, which
-          // renders it slightly soft in Safari.
           clearProps: "filter",
         },
         `reveal+=${at}`,
@@ -624,10 +593,6 @@ function initHeroAnimation() {
     });
   }
 
-  /* Highlighter */
-
-  // The highlight covers the whole group and is clipped down to the active
-  // button, so a CSS transition on clip-path does the sliding.
   function placeHighlight(nav, instant = false) {
     const highlight = nav.querySelector(':scope > [data-hero-lottie="highlight"]');
     const active = nav.querySelector(":scope > [data-button-active]");
@@ -646,8 +611,6 @@ function initHeroAnimation() {
       highlight.style.transition = "";
     }
   }
-
-  /* Lottie */
 
   function crossfadeLottie(state) {
     crossfade?.kill();
@@ -716,8 +679,6 @@ function initHeroAnimation() {
 
     new ResizeObserver(syncPlayers).observe(lottieWrap);
 
-    // Also fires when a group goes from display: none to visible at a
-    // breakpoint, so the hidden group's highlight lands in the right place.
     const navObserver = new ResizeObserver((entries) => {
       entries.forEach((entry) => placeHighlight(entry.target, true));
     });
