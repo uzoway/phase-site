@@ -1,5 +1,5 @@
 @property --border-angle {
-  syntax: "<angle>";
+  syntax: '\3C angle\3E';
   inherits: false;
   initial-value: 135deg;
 }
@@ -11,8 +11,7 @@
 }
 
 [data-cta-border-gradient],
-[data-team-border-gradient],
-.footer_form-input {
+[data-team-border-gradient] {
   --border-sweep: conic-gradient(
     from var(--border-angle),
     var(--border-bright),
@@ -34,6 +33,7 @@
   position: absolute;
   inset: 0;
   padding: 2px;
+  border-radius: inherit;
   pointer-events: none;
   background: var(--border-sweep);
   -webkit-mask:
@@ -92,25 +92,57 @@
 }
 
 /* --- FOOTER --- */
+.footer_form {
+  gap: 1.25rem;
+}
+
 .footer_form-input {
-  border: 2px solid transparent;
-  border-image: var(--border-sweep) 1;
-  transition:
-    --border-angle var(--border-ease),
-    border-color 200ms ease;
+  flex: 1;
+  min-width: 0;
+  height: 3rem;
+  padding: 0 1.5rem;
+  border: 1px solid rgba(21, 182, 222, 0.45);
+  border-radius: 110px;
+  background-color: rgba(255, 255, 255, 0.08);
+  transition: border-color 200ms ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .footer_form-input:hover {
-    --border-angle: 225deg;
+    border-color: rgba(21, 182, 222, 0.8);
   }
 }
 
 .footer_form-input:focus {
-  border-image: none;
   border-color: var(--border-bright);
   outline: 2px solid #fff;
   outline-offset: -6px;
+}
+
+.footer_form [data-cta-border="rotate"] {
+  flex: none;
+  display: flex;
+  border-radius: 110px;
+}
+
+.footer_form [data-cta-border="rotate"] .footer_form-submit-btn,
+.footer_form [data-cta-border="rotate"] .footer_form-submit-btn:hover {
+  width: auto;
+  height: 3rem;
+  padding: 0 1.75rem;
+  border-radius: inherit;
+  background-color: transparent;
+  color: var(--_color---primary--white, #fff);
+}
+
+.footer_form-submit-btn:focus-visible {
+  outline: 0.1875rem solid var(--border-bright);
+  outline-offset: 0.25rem;
+}
+
+.footer_form-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 @media screen and (max-width: 767px) {

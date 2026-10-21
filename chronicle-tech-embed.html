@@ -3,7 +3,8 @@
     --tech-cyan: var(--_color---primary--cyan, #15b6de);
     --tech-label: #7fd6f2;
     --tech-active: var(--_color---primary--white, #fff);
-    --tech-square: 0.75rem;
+    --tech-arrow: 0.875rem;
+    --tech-arrow-depth: 0.4375rem;
     --tech-pad: 0.375rem;
     position: relative;
     width: min(34rem, 42vw, 70svh);
@@ -66,10 +67,22 @@
     height: 0;
   }
 
-  [data-tech-step="generate"] { left: 50%; top: 8%; }
-  [data-tech-step="read"] { left: 92%; top: 50%; }
-  [data-tech-step="resolve"] { left: 50%; top: 92%; }
-  [data-tech-step="return"] { left: 8%; top: 50%; }
+  [data-tech-step="generate"],
+  [data-tech-step="resolve"] {
+    --tech-square: var(--tech-arrow);
+    --tech-square-w: var(--tech-arrow-depth);
+  }
+
+  [data-tech-step="read"],
+  [data-tech-step="return"] {
+    --tech-square: var(--tech-arrow-depth);
+    --tech-square-w: var(--tech-arrow);
+  }
+
+  [data-tech-step="generate"] { left: 50%; top: 8%; --tech-shape: polygon(0 0, 100% 50%, 0 100%); }
+  [data-tech-step="read"] { left: 92%; top: 50%; --tech-shape: polygon(0 0, 100% 0, 50% 100%); }
+  [data-tech-step="resolve"] { left: 50%; top: 92%; --tech-shape: polygon(100% 0, 0 50%, 100% 100%); }
+  [data-tech-step="return"] { left: 8%; top: 50%; --tech-shape: polygon(50% 0, 100% 100%, 0 100%); }
 
   [data-tech="step"] {
     position: absolute;
@@ -102,9 +115,10 @@
 
   [data-tech="square"] {
     flex: none;
-    width: var(--tech-square);
+    width: var(--tech-square-w);
     height: var(--tech-square);
     background-color: var(--tech-cyan);
+    clip-path: var(--tech-shape);
   }
 
   [data-tech="step"][aria-current="step"] {
