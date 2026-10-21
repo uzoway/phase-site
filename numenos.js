@@ -3247,6 +3247,64 @@ function initNumenosMedia() {
   // Scrolling back up reverses this: the rocks reopen from closed, and close
   // again (dimmed) when the intro copy returns. Phones keep the rocks at the
   // intro's 40% throughout so the labels and cards stay readable.
+  // Reduced motion: no video and no hover map. The three layer cards would
+  // otherwise sit where the interaction places them, all at once, on top of
+  // the intro copy, so they become a plain stacked list after the intro.
+  function layoutCLayersStatic(media, map, interactionTrack, rows) {
+    if (!interactionTrack || !rows.length) return;
+
+    gsap.set(media.item.querySelectorAll(".bg-images_img"), {
+      opacity: CONFIG.cLayersIntroOpacity,
+    });
+
+    if (map) {
+      map.setAttribute("aria-hidden", "true");
+      map.style.visibility = "hidden";
+    }
+
+    const list = document.createElement("div");
+    list.setAttribute("data-c-layers-static", "");
+    Object.assign(list.style, {
+      position: "relative",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: "24px",
+      padding: "0 20px 20svh",
+    });
+
+    rows.forEach(function (row) {
+      Object.assign(row.style, {
+        position: "relative",
+        inset: "auto",
+        height: "auto",
+        width: "100%",
+        padding: "0",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        visibility: "visible",
+        opacity: "1",
+        pointerEvents: "auto",
+      });
+
+      // The layer's name lives in the mobile header, next to a close button
+      // that has nothing to close here.
+      const header = row.querySelector(".layers_mobile-header");
+      if (header) header.style.display = "flex";
+      row.querySelectorAll(".layers_close-button").forEach(function (button) {
+        button.hidden = true;
+      });
+
+      list.appendChild(row);
+    });
+
+    // The track has a fixed height for the scroll interaction; here it
+    // grows with the cards so they never run into the next section.
+    interactionTrack.style.height = "auto";
+    interactionTrack.style.minHeight = "0";
+    interactionTrack.appendChild(list);
+  }
+
   function initCLayers(handles) {
     const insights = getSectionByRole("insights");
     const cLayers = getSectionByRole("c-layers");
@@ -3279,7 +3337,10 @@ function initNumenosMedia() {
       : [];
     const rows = Array.from(cLayers.querySelectorAll("[data-layer-row]"));
 
-    if (reducedMotion.matches) return;
+    if (reducedMotion.matches) {
+      layoutCLayersStatic(cLayersMedia, map, interactionTrack, rows);
+      return;
+    }
     if (
       !map ||
       !introTrack ||
