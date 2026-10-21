@@ -46,6 +46,11 @@ html.is-team-modal-open {
   background-color: var(--_color---primary--black, #000);
 }
 
+[data-team="content"] {
+  height: auto;
+  min-height: 100%;
+}
+
 [data-team="content"] > * {
   opacity: 0;
   transition: opacity 200ms ease;
