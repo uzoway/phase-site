@@ -10,9 +10,9 @@ function initHeroSequence() {
   const poster = document.querySelector('[data-canvas-poster="hero"]');
 
   const config = {
-    frames: 53,
+    frames: 54,
     fps: 24,
-    url: "https://cdn.jsdelivr.net/gh/uzoway/phase-site@bb0de94a03b1ae118a23995ecd50ae45e44aaf4a/Phase%20Header/phase-header",
+    url: "https://cdn.jsdelivr.net/gh/uzoway/phase-site@afbfd318fb94c0640c36f3379a7ce2ca8ec8b644/Phase%20Header/phase-header",
     ext: ".webp",
   };
 
