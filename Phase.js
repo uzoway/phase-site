@@ -7,9 +7,6 @@ function initHeroSequence() {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  // Optional Webflow image of the first frame, shown until the canvas takes
-  // over. Hidden after the first draw so it never shows through the frames'
-  // transparent areas.
   const poster = document.querySelector('[data-canvas-poster="hero"]');
 
   const config = {
@@ -67,8 +64,6 @@ function initHeroSequence() {
     img.onload = function () {
       loaded++;
 
-      // Show the first frame as soon as it arrives and hold it until the
-      // whole sequence has loaded, so the hero is never blank.
       if (i === 0) {
         resize();
         window.addEventListener("resize", resize);
@@ -92,8 +87,6 @@ const PROCESS_INTRO_FADE = 0.4;
 const PROCESS_FALLBACK_FPS = 24;
 const PROCESS_MOBILE_SOURCES_QUERY = "(max-width: 767px)";
 
-// Timed handoff between sections: the outgoing video shrinks and fades, then
-// the incoming one settles in from a larger, blurred state.
 const PROCESS_OUT_DURATION = 0.55;
 const PROCESS_OUT_SCALE = 0.75;
 const PROCESS_IN_DURATION = 0.9;
@@ -138,8 +131,6 @@ function initProcessAnimation() {
 
   const total = texts.length;
 
-  // One dot at the start of every section plus one closing dot, so each
-  // section spans dot N -> dot N+1 and transitions fire on dots 2..N.
   const stepNodes = SHOW_STEP_INDICATORS
     ? buildStepNodes(progressWrap, total + 1)
     : [];
@@ -292,8 +283,6 @@ function initProcessAnimation() {
             : { autoAlpha: 0, y: 15 });
         }
 
-        // Plays every scene that is on screen or settling in, pauses the
-        // rest. Scenes entered while scrolling down replay their intro clip.
         function syncPlayback(direction = 1) {
           const next = new Set(
             sectionVisible
@@ -350,8 +339,6 @@ function initProcessAnimation() {
             (mount, index) => index !== step && isShown(mount),
           );
 
-          // Wait for the outgoing video to mostly clear before the next one
-          // arrives, unless we are reversing back into a half-visible one.
           const delay =
             outgoing.length && !incomingShown ? PROCESS_IN_DELAY : 0;
 
@@ -517,8 +504,6 @@ function initProcessAnimation() {
           },
         });
 
-        // Videos only play while the section is on screen. Playback starts
-        // once the section is halfway into the viewport.
         const visibilityTrigger = ScrollTrigger.create({
           start: () => processTrigger.start - window.innerHeight * 0.5,
           end: () => processTrigger.end + window.innerHeight,
@@ -571,9 +556,6 @@ function initProcessAnimation() {
   });
 }
 
-// Hidden <video> that feeds a WebGL texture. Autoplays muted; if the browser
-// blocks playback (e.g. iOS Low Power Mode) it falls back to stepping through
-// the video by seeking on a clock, which those browsers still allow.
 function createProcessClip(src, loop) {
   const video = document.createElement("video");
 
@@ -722,8 +704,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
 
   renderer.setClearColor(0x000000, 0);
 
-  // The canvas sits out of flow so its pixel size never feeds back into the
-  // mount's layout; the mount is sized by Webflow.
   if (getComputedStyle(mount).position === "static") {
     mount.style.position = "relative";
   }
@@ -813,9 +793,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
     return isRotated90 ? videoHeight / videoWidth : videoWidth / videoHeight;
   }
 
-  // Sizes the video to PROCESS_VIDEO_FIT of the canvas height. The clips have
-  // wide empty margins, so the video may overflow the canvas width by up to
-  // PROCESS_VIDEO_MAX_WIDTH before it starts shrinking.
   function updateLayout() {
     const width = mount.clientWidth;
     const height = mount.clientHeight || width;
@@ -1038,8 +1015,6 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
   };
 }
 
-// Blends the intro clip into the loop clip and fades pixels that match the section background, so the video frame has
-// no visible edge against the page.
 const PROCESS_SAMPLE_CHUNK = `
   uniform sampler2D uTexture;
   uniform sampler2D uIntroTexture;
