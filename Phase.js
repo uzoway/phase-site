@@ -1152,8 +1152,6 @@ function initTechSection() {
     ".tech_vid-wrap:not(.uc-write) .tech_vid-embed, .tech_image:not(.uc-write), .tech_mid-line:not(.uc-write), .tech_top-row-line",
   );
 
-  const ACTIVE_COLOR = "#030611";
-  const INACTIVE_COLOR = "#6E97A2";
   const READ_GRADIENT =
     "linear-gradient(180deg, #F0E7DD 77.68%, #FFF296 133.88%)";
   const WRITE_GRADIENT =
@@ -1176,8 +1174,8 @@ function initTechSection() {
     gsap.set(readVisuals, { autoAlpha: 1 });
     gsap.set(writeVisuals, { autoAlpha: 0 });
 
-    gsap.set(readLabel, { color: ACTIVE_COLOR });
-    gsap.set(writeLabel, { color: INACTIVE_COLOR });
+    gsap.set(readLabel, { autoAlpha: 1 });
+    gsap.set(writeLabel, { autoAlpha: 0 });
     gsap.set(progressBar, { scaleX: 0, transformOrigin: "left center" });
     if (bgOverlay) gsap.set(bgOverlay, { autoAlpha: 0 });
   }
@@ -1202,13 +1200,19 @@ function initTechSection() {
       },
     });
 
-    tl.to(progressBar, { scaleX: 1, duration: totalDuration }, 0);
+    tl.to(progressBar, { scaleX: 1, duration: handoff }, 0);
+    tl.fromTo(
+      progressBar,
+      { scaleX: 0 },
+      { scaleX: 1, duration: totalDuration - handoff, immediateRender: false },
+      handoff,
+    );
 
     tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, handoff);
 
     // Fade out specific Read visuals
     tl.to(readVisuals, { autoAlpha: 0, duration: 0.6 }, handoff);
-    tl.to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, handoff);
+    tl.to(readLabel, { autoAlpha: 0, duration: 0.15 }, handoff - 0.15);
 
     if (bgOverlay) {
       tl.to(bgOverlay, { autoAlpha: 1, duration: 0.9 }, handoff - 0.1);
@@ -1221,7 +1225,7 @@ function initTechSection() {
       { autoAlpha: 1, y: 0, duration: 0.5 },
       handoff + 0.2,
     );
-    tl.to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, handoff + 0.2);
+    tl.to(writeLabel, { autoAlpha: 1, duration: 0.15 }, handoff);
   });
 
   mm.add("(max-width: 767px)", () => {
@@ -1251,11 +1255,17 @@ function initTechSection() {
       },
     });
 
-    tl.to(progressBar, { scaleX: 1, duration: totalDuration }, 0);
+    tl.to(progressBar, { scaleX: 1, duration: handoff }, 0);
+    tl.fromTo(
+      progressBar,
+      { scaleX: 0 },
+      { scaleX: 1, duration: totalDuration - handoff, immediateRender: false },
+      handoff,
+    );
 
     tl.to(readDescription, { autoAlpha: 0, y: -12, duration: 0.4 }, handoff);
     tl.to(readVisuals, { autoAlpha: 0, duration: 0.6 }, handoff);
-    tl.to(readLabel, { color: INACTIVE_COLOR, duration: 0.4 }, handoff);
+    tl.to(readLabel, { autoAlpha: 0, duration: 0.15 }, handoff - 0.15);
 
     if (bgOverlay) {
       tl.to(bgOverlay, { autoAlpha: 1, duration: 0.9 }, handoff - 0.1);
@@ -1267,12 +1277,12 @@ function initTechSection() {
       { autoAlpha: 1, y: 0, duration: 0.5 },
       handoff + 0.2,
     );
-    tl.to(writeLabel, { color: ACTIVE_COLOR, duration: 0.4 }, handoff + 0.2);
+    tl.to(writeLabel, { autoAlpha: 1, duration: 0.15 }, handoff);
   });
 
   mm.add("(prefers-reduced-motion: reduce)", () => {
     resetToReadState();
-    gsap.set(progressBar, { scaleX: 0.5 });
+    gsap.set(progressBar, { scaleX: 1 });
   });
 }
 
