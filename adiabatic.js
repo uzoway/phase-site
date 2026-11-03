@@ -417,15 +417,17 @@ function initHeroAnimation() {
   }
 
   const CROSSFADE_DURATION = 0.4;
+  const LOTTIE_SPEED = 0.8;
 
   const TEXT = {
     outDuration: 0.25,
-    wordDuration: 0.45,
-    wordStagger: 0.045,
+    wordDuration: 0.5,
+    wordStagger: 0.09,
   };
 
   let current = before;
   let textTimeline = null;
+  let textDone = false;
   let crossfade = null;
   let preloaderDone = !document.documentElement.classList.contains("is-loading");
 
@@ -453,7 +455,6 @@ function initHeroAnimation() {
       () => {
         preloaderDone = true;
         revealText(current);
-        startActivePlayer();
       },
       { once: true },
     );
@@ -470,7 +471,7 @@ function initHeroAnimation() {
     if (!active) return;
 
     if (e.detail.isOpen) active.pause();
-    else if (!prefersReducedMotion) active.play();
+    else startActivePlayer();
   });
 
   function setupText() {
@@ -531,8 +532,14 @@ function initHeroAnimation() {
     textTimeline?.kill();
 
     const outgoing = other(state);
-    const tl = gsap.timeline();
+    const tl = gsap.timeline({
+      onComplete: () => {
+        textDone = true;
+        startActivePlayer();
+      },
+    });
     textTimeline = tl;
+    textDone = false;
 
     const showing = [outgoing, state].filter(isShowing).map((s) => s.text);
     if (showing.length) {
@@ -579,8 +586,8 @@ function initHeroAnimation() {
 
     if (state.player) {
       syncPlayerLayout(state);
+      state.player.pause();
       state.player.setFrame(0);
-      if (!prefersReducedMotion) state.player.play();
     }
 
     if (prefersReducedMotion) {
@@ -668,6 +675,7 @@ function initHeroAnimation() {
       src: state.src,
       autoplay: false,
       loop: false,
+      speed: LOTTIE_SPEED,
       renderConfig: { autoResize: true },
       layout: getPlayerLayout(state),
     });
@@ -691,7 +699,7 @@ function initHeroAnimation() {
   }
 
   function startActivePlayer() {
-    if (!preloaderDone || prefersReducedMotion) return;
+    if (!preloaderDone || !textDone || prefersReducedMotion) return;
     current.player?.play();
   }
 }
