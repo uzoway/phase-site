@@ -7,6 +7,11 @@ function loadDotLottie() {
   return dotLottiePromise;
 }
 
+const LOTTIE_RENDER = {
+  autoResize: true,
+  devicePixelRatio: window.devicePixelRatio || 1,
+};
+
 const prefersReducedMotion = window.matchMedia(
   "(prefers-reduced-motion: reduce)",
 ).matches;
@@ -177,7 +182,7 @@ function initPreloader() {
         src: "https://cdn.prod.website-files.com/699d71efcffad5812bae11d5/6a3b99ed7c28d351bc014ecf_Loading%20Screen.json",
         autoplay: true,
         loop: false,
-        renderConfig: { autoResize: true },
+        renderConfig: LOTTIE_RENDER,
         layout: { fit: isMobile ? "cover" : "fit-height", align: [0.5, 0.5] },
       });
 
@@ -391,6 +396,7 @@ function initHeroAnimation() {
       ],
       words: [],
       player: null,
+      stillProgress: name === "before" ? 0.75 : 0.9,
     };
   };
 
@@ -587,7 +593,7 @@ function initHeroAnimation() {
     if (state.player) {
       syncPlayerLayout(state);
       state.player.pause();
-      state.player.setFrame(0);
+      state.player.setFrame(restFrame(state));
     }
 
     if (prefersReducedMotion) {
@@ -676,13 +682,14 @@ function initHeroAnimation() {
       autoplay: false,
       loop: false,
       speed: LOTTIE_SPEED,
-      renderConfig: { autoResize: true },
+      renderConfig: LOTTIE_RENDER,
       layout: getPlayerLayout(state),
     });
 
     player.addEventListener("load", () => {
       requestAnimationFrame(() => {
         syncPlayerLayout(state);
+        if (prefersReducedMotion) player.setFrame(restFrame(state));
         if (state === current) startActivePlayer();
       });
     });
@@ -698,10 +705,33 @@ function initHeroAnimation() {
     return player;
   }
 
+  function restFrame(state) {
+    if (!prefersReducedMotion || !state.player) return 0;
+    return Math.round((state.player.totalFrames - 1) * state.stillProgress);
+  }
+
   function startActivePlayer() {
     if (!preloaderDone || !textDone || prefersReducedMotion) return;
     current.player?.play();
   }
+}
+
+/* -- Fixed footer height -- */
+function initFooterHeight() {
+  const footer = document.querySelector("footer");
+  if (!footer) return;
+
+  const update = () => {
+    const isFixed = getComputedStyle(footer).position === "fixed";
+    document.documentElement.style.setProperty(
+      "--footer-height",
+      isFixed ? `${footer.offsetHeight}px` : "0px",
+    );
+  };
+
+  update();
+  new ResizeObserver(update).observe(footer);
+  window.addEventListener("resize", update);
 }
 
 /* -- Legal table of contents scroll offset -- */
@@ -753,6 +783,7 @@ function debounce(fn, delay) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initFooterHeight();
   initClipboardInteraction();
   initPreloader();
   initVideoModal();
