@@ -856,7 +856,7 @@ function createDualScene(mount, { loopSrc, introSrc, rotation, backgroundColor }
 
   const textures = introClip ? [introTexture, loopTexture] : [loopTexture];
 
-  const background = new THREE.Color(backgroundColor || "#040510");
+  const background = new THREE.Color(backgroundColor || "#040610");
 
   const uniforms = {
     uTexture: {
