@@ -1527,6 +1527,29 @@ function initTechSection() {
     resetToReadState();
     gsap.set(progressBar, { scaleX: 1 });
   });
+
+  refreshOnContentResize(section.querySelector(".tech_wrap"));
+}
+
+function refreshOnContentResize(content) {
+  if (!content || !("ResizeObserver" in window)) return;
+
+  const children = [...content.children];
+  const measure = () =>
+    children.reduce((total, child) => total + child.offsetHeight, 0);
+
+  let lastHeight = measure();
+  let refreshTimer;
+
+  const observer = new ResizeObserver(() => {
+    const height = measure();
+    if (Math.abs(height - lastHeight) < 1) return;
+    lastHeight = height;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => ScrollTrigger.refresh(), 200);
+  });
+
+  children.forEach((child) => observer.observe(child));
 }
 
 function buildBackgroundOverlay(section, gradient) {
