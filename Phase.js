@@ -128,7 +128,7 @@ function initHeroSequence() {
 
 /* -- PROCESS VIDEO STEP ANIMATION -- */
 const SHOW_STEP_INDICATORS = true;
-const PROCESS_SECTION_SCROLL = 50;
+const PROCESS_SECTION_SCROLL = 100;
 const PROCESS_VIDEO_FIT = 0.9;
 const PROCESS_VIDEO_MAX_WIDTH = 1.15;
 const PROCESS_INTRO_FADE = 0.4;
@@ -138,7 +138,8 @@ const PROCESS_MOBILE_SOURCES_QUERY = "(max-width: 767px)";
 const PROCESS_OUT_DURATION = 0.55;
 const PROCESS_OUT_SCALE = 0.75;
 const PROCESS_IN_DURATION = 0.9;
-const PROCESS_IN_DELAY = 0.4;
+const PROCESS_IN_DELAY = 0.15;
+const PROCESS_TEXT_OUT_DURATION = 0.3;
 const PROCESS_IN_SCALE = 1.5;
 const PROCESS_IN_BLUR_RATIO = 0.03;
 
@@ -471,6 +472,18 @@ function initProcessAnimation() {
           onUpdate: () => applyBlur(step),
         });
 
+        const incomingText = texts[step];
+        const incomingTextShown = isShown(incomingText);
+
+        const outgoingTexts = texts.filter(
+          (text, index) => index !== step && isShown(text),
+        );
+
+        const textDelay =
+          outgoingTexts.length && !incomingTextShown
+            ? PROCESS_TEXT_OUT_DURATION
+            : 0;
+
         texts.forEach((text, index) => {
           if (index === step) return;
 
@@ -484,16 +497,14 @@ function initProcessAnimation() {
           gsap.to(text, {
             autoAlpha: 0,
             y: -12,
-            duration: PROCESS_OUT_DURATION,
+            duration: PROCESS_TEXT_OUT_DURATION,
             ease: "power2.in",
           });
         });
 
-        const incomingText = texts[step];
-
         gsap.killTweensOf(incomingText);
 
-        if (!isShown(incomingText)) {
+        if (!incomingTextShown) {
           gsap.set(incomingText, { autoAlpha: 0, y: 12 });
         }
 
@@ -501,7 +512,7 @@ function initProcessAnimation() {
           autoAlpha: 1,
           y: 0,
           duration: PROCESS_IN_DURATION * 0.8,
-          delay,
+          delay: textDelay,
           ease: "power2.out",
         });
 
