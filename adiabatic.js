@@ -499,6 +499,8 @@ function initHeroAnimation() {
 
       gsap.set(state.words, { opacity: 0 });
     }
+
+    gsap.set(after.text, { autoAlpha: 0 });
   }
 
   function setupAccessibility() {
@@ -556,7 +558,8 @@ function initHeroAnimation() {
       });
     }
 
-    tl.set([outgoing.text, state.text], { autoAlpha: 1 })
+    tl.set(outgoing.text, { autoAlpha: 0 })
+      .set(state.text, { autoAlpha: 1 })
       .set([...outgoing.words, ...state.words], { opacity: 0 })
       .to(state.words, {
         opacity: 1,
